@@ -38,6 +38,11 @@ public class ExpenseDb extends SQLiteOpenHelper {
         boolean found=c.moveToFirst(); c.close(); return found;
     }
 
+    public boolean existsOriginal(String original){
+        Cursor c=getReadableDatabase().rawQuery("SELECT 1 FROM tx WHERE original_text=? LIMIT 1",new String[]{original});
+        boolean found=c.moveToFirst(); c.close(); return found;
+    }
+
     public long addRecurring(String type,double amount,String currency,String category,String description,int day){
         ContentValues v=new ContentValues(); v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("day",day); v.put("active",1);
         return getWritableDatabase().insert("recurring",null,v);
