@@ -1,0 +1,8 @@
+<resources>
+    <color name="primary">#546E7A</color>
+    <color name="primary_dark">#37474F</color>
+    <color name="accent">#78909C</color>
+    <color name="income">#2E7D32</color>
+    <color name="expense">#C62828</color>
+    <color name="soft_bg">#F6F7F8</color>
+</resources>
