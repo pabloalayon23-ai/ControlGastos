@@ -8,21 +8,41 @@ import java.util.*;
 
 public class ExpenseDb extends SQLiteOpenHelper {
     public static final String DB="gastos.db";
-    public ExpenseDb(Context c){ super(c,DB,null,1); }
+    public ExpenseDb(Context c){ super(c,DB,null,2); }
+
     @Override public void onCreate(SQLiteDatabase db){
-        db.execSQL("CREATE TABLE tx(id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, amount REAL NOT NULL, currency TEXT NOT NULL, category TEXT, description TEXT, original_text TEXT, ts INTEGER NOT NULL, source TEXT NOT NULL)");
+        db.execSQL("CREATE TABLE tx(id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, amount REAL NOT NULL, currency TEXT NOT NULL, category TEXT, description TEXT, original_text TEXT, ts INTEGER NOT NULL, source TEXT NOT NULL, fingerprint TEXT)");
+        db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_fingerprint ON tx(fingerprint) WHERE fingerprint IS NOT NULL AND fingerprint<>''");
         db.execSQL("CREATE TABLE recurring(id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, amount REAL NOT NULL, currency TEXT NOT NULL, category TEXT, description TEXT, day INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1, last_ym TEXT)");
     }
-    @Override public void onUpgrade(SQLiteDatabase db,int o,int n){}
+
+    @Override public void onUpgrade(SQLiteDatabase db,int oldVersion,int newVersion){
+        if(oldVersion<2){
+            try{ db.execSQL("ALTER TABLE tx ADD COLUMN fingerprint TEXT"); }catch(Exception ignored){}
+            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_fingerprint ON tx(fingerprint) WHERE fingerprint IS NOT NULL AND fingerprint<>''");
+        }
+    }
 
     public long addTx(String type,double amount,String currency,String category,String description,String original,long ts,String source){
         ContentValues v=new ContentValues(); v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("original_text",original); v.put("ts",ts); v.put("source",source);
         return getWritableDatabase().insert("tx",null,v);
     }
+
+    public boolean addImportedTx(String type,double amount,String currency,String category,String description,String original,long ts,String source,String fingerprint){
+        ContentValues v=new ContentValues(); v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("original_text",original); v.put("ts",ts); v.put("source",source); v.put("fingerprint",fingerprint);
+        return getWritableDatabase().insertWithOnConflict("tx",null,v,SQLiteDatabase.CONFLICT_IGNORE)!=-1;
+    }
+
+    public boolean hasFingerprint(String fingerprint){
+        Cursor c=getReadableDatabase().rawQuery("SELECT 1 FROM tx WHERE fingerprint=? LIMIT 1",new String[]{fingerprint});
+        boolean found=c.moveToFirst(); c.close(); return found;
+    }
+
     public long addRecurring(String type,double amount,String currency,String category,String description,int day){
         ContentValues v=new ContentValues(); v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("day",day); v.put("active",1);
         return getWritableDatabase().insert("recurring",null,v);
     }
+
     public void materializeRecurring(){
         Calendar now=Calendar.getInstance(); String ym=new SimpleDateFormat("yyyy-MM",Locale.US).format(now.getTime());
         Cursor c=getReadableDatabase().rawQuery("SELECT id,type,amount,currency,category,description,day,last_ym FROM recurring WHERE active=1",null);
@@ -36,11 +56,13 @@ public class ExpenseDb extends SQLiteOpenHelper {
         }
         c.close();
     }
+
     public Cursor monthTx(){
         Calendar a=Calendar.getInstance(); a.set(Calendar.DAY_OF_MONTH,1); a.set(Calendar.HOUR_OF_DAY,0); a.set(Calendar.MINUTE,0); a.set(Calendar.SECOND,0); a.set(Calendar.MILLISECOND,0);
         Calendar b=(Calendar)a.clone(); b.add(Calendar.MONTH,1);
         return getReadableDatabase().rawQuery("SELECT id,type,amount,currency,category,description,original_text,ts,source FROM tx WHERE ts>=? AND ts<? ORDER BY ts DESC",new String[]{String.valueOf(a.getTimeInMillis()),String.valueOf(b.getTimeInMillis())});
     }
+
     public Cursor allRecurring(){ return getReadableDatabase().rawQuery("SELECT id,type,amount,currency,category,description,day,active FROM recurring ORDER BY type DESC,description",null); }
     public void deleteTx(long id){ getWritableDatabase().delete("tx","id=?",new String[]{String.valueOf(id)}); }
     public void deleteRecurring(long id){ getWritableDatabase().delete("recurring","id=?",new String[]{String.valueOf(id)}); }
