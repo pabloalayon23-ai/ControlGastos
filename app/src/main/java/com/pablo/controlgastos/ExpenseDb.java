@@ -29,11 +29,17 @@ public class ExpenseDb extends SQLiteOpenHelper {
     }
 
     public boolean addImportedTx(String type,double amount,String currency,String category,String description,String original,long ts,String source,String fingerprint){
+        if(hasFingerprint(fingerprint)) return false;
+        // Si este gasto ya entró por una notificación bancaria del mismo día,
+        // mismo importe y moneda, vinculamos la huella del Excel al movimiento
+        // existente en vez de insertar una segunda fila.
+        if("GASTO".equals(type) && linkImportedToNotification(type,amount,currency,ts,fingerprint)) return false;
         ContentValues v=new ContentValues(); v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("original_text",original); v.put("ts",ts); v.put("source",source); v.put("fingerprint",fingerprint);
         return getWritableDatabase().insertWithOnConflict("tx",null,v,SQLiteDatabase.CONFLICT_IGNORE)!=-1;
     }
 
     public boolean hasFingerprint(String fingerprint){
+        if(fingerprint==null || fingerprint.isEmpty()) return false;
         Cursor c=getReadableDatabase().rawQuery("SELECT 1 FROM tx WHERE fingerprint=? LIMIT 1",new String[]{fingerprint});
         boolean found=c.moveToFirst(); c.close(); return found;
     }
