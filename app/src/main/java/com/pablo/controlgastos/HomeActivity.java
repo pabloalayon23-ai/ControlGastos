@@ -30,7 +30,10 @@ public class HomeActivity extends Activity {
     private void build(){
         LinearLayout outer=new LinearLayout(this); outer.setOrientation(LinearLayout.VERTICAL); outer.setBackgroundColor(BG);
         LinearLayout header=new LinearLayout(this); header.setOrientation(LinearLayout.VERTICAL); header.setPadding(dp(16),dp(14),dp(16),dp(4));
-        TextView title=tv("ControlGastos",28,TEXT); title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); header.addView(title);
+        LinearLayout titleRow=new LinearLayout(this); titleRow.setOrientation(LinearLayout.HORIZONTAL); titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        TextView title=tv("ControlGastos",28,TEXT); title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); titleRow.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        Button help=button("? Ayuda"); help.setTextSize(13); help.setOnClickListener(v->showHelp()); titleRow.addView(help,new LinearLayout.LayoutParams(dp(94),dp(44)));
+        header.addView(titleRow);
         month=tv("",15,MUTED); header.addView(month); outer.addView(header);
 
         LinearLayout summary=new LinearLayout(this);summary.setOrientation(LinearLayout.HORIZONTAL);summary.setPadding(dp(12),dp(5),dp(12),dp(10));
@@ -60,19 +63,59 @@ public class HomeActivity extends Activity {
         gastos.setText("Gastos\n$ "+money.format(out));ingresos.setText("Ingresos\n$ "+money.format(in));saldo.setText("Saldo\n$ "+money.format(in-out));
         SimpleDateFormat dayKey=new SimpleDateFormat("yyyyMMdd",Locale.US), dayLabel=new SimpleDateFormat("EEE, d 'de' MMM",new Locale("es","UY")),time=new SimpleDateFormat("HH:mm",Locale.US);String last="";
         for(Object[] r:rows){long id=(Long)r[0],ts=(Long)r[6];String dk=dayKey.format(new Date(ts));if(!dk.equals(last)){TextView h=tv(dayLabel.format(new Date(ts)),15,MUTED);h.setTypeface(Typeface.DEFAULT,Typeface.BOLD);h.setPadding(dp(8),dp(12),0,dp(4));list.addView(h);last=dk;}
-            String type=(String)r[1],cur=(String)r[3],cat=(String)r[4],desc=(String)r[5];double a=(Double)r[2];
+            String type=(String)r[1],cur=(String)r[3],cat=(String)r[4],desc=(String)r[5],source=(String)r[7];double a=(Double)r[2];
             LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(12),dp(9),dp(10),dp(9));row.setBackground(bg(CARD,12));LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);rp.setMargins(0,0,0,dp(6));row.setLayoutParams(rp);
             TextView icon=tv(iconFor(cat,desc),23,TEXT);icon.setGravity(Gravity.CENTER);icon.setBackground(bg(colorFor(cat,desc),24));row.addView(icon,new LinearLayout.LayoutParams(dp(48),dp(48)));
             LinearLayout mid=new LinearLayout(this);mid.setOrientation(LinearLayout.VERTICAL);TextView d=tv(desc==null?"Sin descripción":desc,17,TEXT);d.setTypeface(Typeface.DEFAULT,Typeface.BOLD);TextView sub=tv((cat==null?"Sin categoría":cat)+" · "+time.format(new Date(ts)),13,MUTED);mid.addView(d);mid.addView(sub);LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(0,-2,1);mp.setMargins(dp(8),0,dp(5),0);row.addView(mid,mp);
             TextView amt=tv(("GASTO".equals(type)?"-":"+")+("USD".equals(cur)?"USD ":"$ ")+money.format(a),16,"GASTO".equals(type)?Color.rgb(255,112,112):Color.rgb(92,224,146));amt.setTypeface(Typeface.DEFAULT,Typeface.BOLD);amt.setGravity(Gravity.RIGHT);row.addView(amt);
-            final String fdesc=desc;row.setOnLongClickListener(v->{new AlertDialog.Builder(this).setTitle("Eliminar movimiento").setMessage(fdesc).setPositiveButton("Eliminar",(x,w)->{db.deleteTx(id);refresh();}).setNegativeButton("Cancelar",null).show();return true;});list.addView(row);
+            final String fdesc=desc; final long fid=id, fts=ts; final double fa=a; final String ftype=type,fcur=cur,fcat=cat,fsrc=source;
+            row.setOnClickListener(v->showEdit(fid,ftype,fa,fcur,fcat,fdesc,fts,fsrc));
+            row.setOnLongClickListener(v->{new AlertDialog.Builder(this).setTitle("Eliminar movimiento").setMessage((fdesc==null?"Movimiento":fdesc)+"\n\nEsta acción no se puede deshacer.").setPositiveButton("Eliminar",(x,w)->{db.deleteTx(fid);refresh();}).setNegativeButton("Cancelar",null).show();return true;});list.addView(row);
         }
+        if(rows.isEmpty()){TextView empty=tv("Todavía no hay movimientos este mes.\nUsá + Agregar, importá el Excel del banco o activá las notificaciones.",15,MUTED);empty.setGravity(Gravity.CENTER);empty.setPadding(dp(20),dp(40),dp(20),dp(40));list.addView(empty);}
     }
 
     private String iconFor(String cat,String desc){String s=((cat==null?"":cat)+" "+(desc==null?"":desc)).toLowerCase(Locale.ROOT);if(s.contains("super")||s.contains("disco")||s.contains("devoto")||s.contains("geant"))return "🛒";if(s.contains("combust")||s.contains("ancap"))return "⛽";if(s.contains("salud")||s.contains("farm"))return "❤";if(s.contains("comida")||s.contains("rest"))return "🍴";if(s.contains("transporte")||s.contains("peaje"))return "🚗";if(s.contains("servicio")||s.contains("ute")||s.contains("antel"))return "⌂";if(s.contains("ingreso"))return "$";return "●";}
     private int colorFor(String cat,String desc){String i=iconFor(cat,desc);if("🛒".equals(i))return Color.rgb(232,170,36);if("⛽".equals(i))return Color.rgb(72,128,238);if("❤".equals(i))return Color.rgb(78,135,244);if("🍴".equals(i))return Color.rgb(58,178,98);if("🚗".equals(i))return Color.rgb(74,180,190);return Color.rgb(123,91,190);}
 
-    private void showAdd(){LinearLayout f=new LinearLayout(this);f.setOrientation(LinearLayout.VERTICAL);f.setPadding(dp(24),0,dp(24),0);Spinner type=new Spinner(this);type.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"GASTO","INGRESO"}));EditText amount=new EditText(this);amount.setHint("Monto");amount.setInputType(2|8192);Spinner currency=new Spinner(this);currency.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"UYU","USD"}));EditText desc=new EditText(this);desc.setHint("Descripción");EditText cat=new EditText(this);cat.setHint("Categoría");f.addView(type);f.addView(amount);f.addView(currency);f.addView(desc);f.addView(cat);new AlertDialog.Builder(this).setTitle("Nuevo movimiento").setView(f).setPositiveButton("Guardar",(d,w)->{try{double a=Double.parseDouble(amount.getText().toString().replace(',','.'));String de=desc.getText().toString().trim();if(de.isEmpty())de="Sin descripción";String ca=cat.getText().toString().trim();if(ca.isEmpty())ca="Sin categoría";db.addTx(type.getSelectedItem().toString(),a,currency.getSelectedItem().toString(),ca,de,"",System.currentTimeMillis(),"manual");refresh();}catch(Exception e){Toast.makeText(this,"Revisá el monto",Toast.LENGTH_LONG).show();}}).setNegativeButton("Cancelar",null).show();}
+    private void showAdd(){
+        LinearLayout f=form(); Spinner type=typeSpinner("GASTO"); EditText amount=amountEdit(0); Spinner currency=currencySpinner("UYU");EditText desc=textEdit("Descripción","");EditText cat=textEdit("Categoría","");
+        f.addView(type);f.addView(amount);f.addView(currency);f.addView(desc);f.addView(cat);
+        new AlertDialog.Builder(this).setTitle("Nuevo movimiento").setView(f).setPositiveButton("Guardar",(d,w)->{try{double a=parseAmount(amount);String de=desc.getText().toString().trim();if(de.isEmpty())de="Sin descripción";String ca=cat.getText().toString().trim();if(ca.isEmpty())ca="Sin categoría";db.addTx(type.getSelectedItem().toString(),a,currency.getSelectedItem().toString(),ca,de,"",System.currentTimeMillis(),"manual");refresh();}catch(Exception e){Toast.makeText(this,"Revisá el monto",Toast.LENGTH_LONG).show();}}).setNegativeButton("Cancelar",null).show();
+    }
+
+    private void showEdit(long id,String currentType,double currentAmount,String currentCurrency,String currentCategory,String currentDesc,long currentTs,String source){
+        LinearLayout f=form(); Spinner type=typeSpinner(currentType); EditText amount=amountEdit(currentAmount); Spinner currency=currencySpinner(currentCurrency); EditText desc=textEdit("Descripción",currentDesc); EditText cat=textEdit("Categoría",currentCategory);
+        final Calendar chosen=Calendar.getInstance();chosen.setTimeInMillis(currentTs);Button date=button("Fecha: "+new SimpleDateFormat("dd/MM/yyyy",Locale.US).format(chosen.getTime()));
+        date.setOnClickListener(v->new DatePickerDialog(this,(view,y,m,d)->{chosen.set(Calendar.YEAR,y);chosen.set(Calendar.MONTH,m);chosen.set(Calendar.DAY_OF_MONTH,d);date.setText("Fecha: "+new SimpleDateFormat("dd/MM/yyyy",Locale.US).format(chosen.getTime()));},chosen.get(Calendar.YEAR),chosen.get(Calendar.MONTH),chosen.get(Calendar.DAY_OF_MONTH)).show());
+        TextView src=tv("Origen: "+sourceLabel(source),13,MUTED);f.addView(type);f.addView(amount);f.addView(currency);f.addView(desc);f.addView(cat);f.addView(date);f.addView(src);
+        new AlertDialog.Builder(this).setTitle("Editar movimiento").setView(f).setPositiveButton("Guardar cambios",(d,w)->{try{double a=parseAmount(amount);String de=desc.getText().toString().trim();if(de.isEmpty())de="Sin descripción";String ca=cat.getText().toString().trim();if(ca.isEmpty())ca="Sin categoría";db.updateTx(id,type.getSelectedItem().toString(),a,currency.getSelectedItem().toString(),ca,de,chosen.getTimeInMillis());refresh();}catch(Exception e){Toast.makeText(this,"Revisá el monto",Toast.LENGTH_LONG).show();}}).setNeutralButton("Eliminar",(d,w)->confirmDelete(id,currentDesc)).setNegativeButton("Cancelar",null).show();
+    }
+
+    private void confirmDelete(long id,String desc){new AlertDialog.Builder(this).setTitle("Eliminar movimiento").setMessage((desc==null?"Movimiento":desc)+"\n\nEsta acción no se puede deshacer.").setPositiveButton("Eliminar",(d,w)->{db.deleteTx(id);refresh();}).setNegativeButton("Cancelar",null).show();}
+    private LinearLayout form(){LinearLayout f=new LinearLayout(this);f.setOrientation(LinearLayout.VERTICAL);f.setPadding(dp(24),0,dp(24),0);return f;}
+    private Spinner typeSpinner(String selected){Spinner s=new Spinner(this);s.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"GASTO","INGRESO"}));s.setSelection("INGRESO".equals(selected)?1:0);return s;}
+    private Spinner currencySpinner(String selected){Spinner s=new Spinner(this);s.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,new String[]{"UYU","USD"}));s.setSelection("USD".equals(selected)?1:0);return s;}
+    private EditText amountEdit(double value){EditText e=new EditText(this);e.setHint("Monto");e.setInputType(2|8192);if(value>0)e.setText(String.format(Locale.US,"%.2f",value));return e;}
+    private EditText textEdit(String hint,String value){EditText e=new EditText(this);e.setHint(hint);if(value!=null)e.setText(value);return e;}
+    private double parseAmount(EditText e){double v=Double.parseDouble(e.getText().toString().trim().replace(',','.'));if(v<=0)throw new IllegalArgumentException();return v;}
+    private String sourceLabel(String s){if(s==null)return "desconocido";String n=s.toLowerCase(Locale.ROOT);if(n.contains("paganza"))return "Paganza";if(n.startsWith("notificacion:"))return "Notificación bancaria";if(n.contains("xls")||n.contains("excel")||n.contains("banco"))return "Excel bancario";if(n.contains("recurrente"))return "Recurrente";if(n.contains("manual"))return "Manual";return s;}
+
+    private void showHelp(){
+        ScrollView sc=new ScrollView(this);TextView t=tv(
+            "CÓMO FUNCIONA\n\n"+
+            "1. Registro automático\nControlGastos puede leer notificaciones de pagos de eBROU/BROU y Paganza cuando autorizás el acceso a notificaciones. No necesita tu usuario ni contraseña bancaria.\n\n"+
+            "2. Paganza\nLos pagos reconocidos desde Paganza se guardan automáticamente. Si después el banco muestra un débito identificado como PAGANZA, se ignora para evitar contar el mismo gasto dos veces.\n\n"+
+            "3. Importar Excel del banco\nEn Importar podés seleccionar el archivo .xls descargado del banco. La app usa huellas internas para evitar volver a cargar movimientos ya importados y concilia compras capturadas previamente por notificación.\n\n"+
+            "4. Agregar manualmente\nTocá + Agregar para cargar efectivo u otros movimientos que no lleguen automáticamente.\n\n"+
+            "5. Editar o eliminar\nTocá cualquier movimiento para modificar tipo, monto, moneda, descripción, categoría o fecha. Desde la misma ventana también podés eliminarlo. Mantener apretada una fila permite eliminar rápidamente.\n\n"+
+            "6. Gráficos y comercios\nEn Gráficos podés analizar gastos por categoría y por comercio. Variantes del mismo comercio se agrupan para mostrar el total gastado. También podés comparar meses y usar presupuestos por categoría.\n\n"+
+            "7. Recurrentes y exportación\nEn Ajustes/Importar encontrás los movimientos recurrentes, exportación CSV y herramientas adicionales.\n\n"+
+            "SI FALTA UNA COMPRA\nRevisá que el acceso a notificaciones esté activado. Android puede restringir servicios en segundo plano; abrir ControlGastos permite volver a revisar notificaciones activas. Como respaldo siempre podés importar el Excel del banco.\n\n"+
+            "PRIVACIDAD\nLos movimientos se guardan en la base de datos local de ControlGastos. El permiso de notificaciones se utiliza para detectar mensajes compatibles con pagos.",15,Color.rgb(45,45,45));t.setPadding(dp(22),dp(10),dp(22),dp(18));sc.addView(t);
+        AlertDialog dlg=new AlertDialog.Builder(this).setTitle("Ayuda · ControlGastos").setView(sc).setPositiveButton("Entendido",null).create();dlg.show();
+    }
+
     private boolean notificationEnabled(){String e=Settings.Secure.getString(getContentResolver(),"enabled_notification_listeners");return e!=null&&e.contains(getPackageName());}
     private void openNotificationSettings(){try{startActivity(new Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"));}catch(Exception ignored){}}
 }
