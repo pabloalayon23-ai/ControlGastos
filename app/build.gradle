@@ -8,8 +8,19 @@ android {
         applicationId 'com.pablo.controlgastos'
         minSdk 26
         targetSdk 35
-        versionCode 3
-        versionName '1.3'
+        versionCode 4
+        versionName '1.4'
+    }
+
+    buildTypes {
+        debug {
+            debuggable false
+        }
+        release {
+            minifyEnabled true
+            shrinkResources true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
     }
 }
 
