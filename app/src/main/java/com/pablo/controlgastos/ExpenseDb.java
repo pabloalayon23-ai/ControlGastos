@@ -56,89 +56,34 @@ public class ExpenseDb extends SQLiteOpenHelper {
     }
 
     private long[] duplicateBounds(long ts){
-        Calendar a=Calendar.getInstance();
-        a.setTimeInMillis(ts);
-        a.set(Calendar.HOUR_OF_DAY,0); a.set(Calendar.MINUTE,0); a.set(Calendar.SECOND,0); a.set(Calendar.MILLISECOND,0);
-        a.add(Calendar.DAY_OF_MONTH,-DUPLICATE_DAY_TOLERANCE);
-        Calendar b=Calendar.getInstance();
-        b.setTimeInMillis(ts);
-        b.set(Calendar.HOUR_OF_DAY,0); b.set(Calendar.MINUTE,0); b.set(Calendar.SECOND,0); b.set(Calendar.MILLISECOND,0);
-        b.add(Calendar.DAY_OF_MONTH,DUPLICATE_DAY_TOLERANCE+1);
+        Calendar a=Calendar.getInstance(); a.setTimeInMillis(ts); a.set(Calendar.HOUR_OF_DAY,0); a.set(Calendar.MINUTE,0); a.set(Calendar.SECOND,0); a.set(Calendar.MILLISECOND,0); a.add(Calendar.DAY_OF_MONTH,-DUPLICATE_DAY_TOLERANCE);
+        Calendar b=Calendar.getInstance(); b.setTimeInMillis(ts); b.set(Calendar.HOUR_OF_DAY,0); b.set(Calendar.MINUTE,0); b.set(Calendar.SECOND,0); b.set(Calendar.MILLISECOND,0); b.add(Calendar.DAY_OF_MONTH,DUPLICATE_DAY_TOLERANCE+1);
         return new long[]{a.getTimeInMillis(),b.getTimeInMillis()};
     }
 
-    /**
-     * True only when all three dedupe conditions are met:
-     * 1) same amount (within one cent), 2) date within +/-4 calendar days,
-     * 3) merchant/description partially matches after normalization.
-     */
     public boolean hasImportedDuplicate(String type,double amount,String currency,String description,long ts){
         long[] d=duplicateBounds(ts);
-        Cursor c=getReadableDatabase().rawQuery(
-            "SELECT description FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND ts>=? AND ts<? AND source LIKE 'banco-xls%'",
-            new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1])});
-        try{
-            while(c.moveToNext()) if(merchantMatches(description,c.getString(0))) return true;
-            return false;
-        }finally{ c.close(); }
+        Cursor c=getReadableDatabase().rawQuery("SELECT description FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND ts>=? AND ts<? AND source LIKE 'banco-xls%'",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1])});
+        try{ while(c.moveToNext()) if(merchantMatches(description,c.getString(0))) return true; return false; }finally{ c.close(); }
     }
 
     public boolean linkImportedToNotification(String type,double amount,String currency,String description,long ts,String fingerprint){
         if(fingerprint==null || fingerprint.isEmpty() || hasFingerprint(fingerprint)) return false;
         long[] d=duplicateBounds(ts);
-        Cursor c=getReadableDatabase().rawQuery(
-            "SELECT id,description FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND ts>=? AND ts<? AND source LIKE 'notificacion:%' AND (fingerprint IS NULL OR fingerprint='') ORDER BY ABS(ts-?) ASC",
-            new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1]),String.valueOf(ts)});
-        long id=-1;
-        try{
-            while(c.moveToNext()){
-                if(merchantMatches(description,c.getString(1))){ id=c.getLong(0); break; }
-            }
-        }finally{ c.close(); }
-        if(id<0) return false;
-        ContentValues v=new ContentValues(); v.put("fingerprint",fingerprint);
+        Cursor c=getReadableDatabase().rawQuery("SELECT id,description FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND ts>=? AND ts<? AND source LIKE 'notificacion:%' AND (fingerprint IS NULL OR fingerprint='') ORDER BY ABS(ts-?) ASC",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1]),String.valueOf(ts)});
+        long id=-1; try{ while(c.moveToNext()){ if(merchantMatches(description,c.getString(1))){ id=c.getLong(0); break; } } }finally{ c.close(); }
+        if(id<0) return false; ContentValues v=new ContentValues(); v.put("fingerprint",fingerprint);
         return getWritableDatabase().update("tx",v,"id=? AND (fingerprint IS NULL OR fingerprint='')",new String[]{String.valueOf(id)})==1;
     }
 
-    public static boolean merchantMatches(String a,String b){
-        String x=merchantKey(a),y=merchantKey(b);
-        if(x.length()<4 || y.length()<4) return false;
-        return x.contains(y) || y.contains(x);
-    }
+    public static boolean merchantMatches(String a,String b){ String x=merchantKey(a),y=merchantKey(b); if(x.length()<4 || y.length()<4) return false; return x.contains(y) || y.contains(x); }
+    private static String merchantKey(String s){ if(s==null)return ""; String n=java.text.Normalizer.normalize(s,java.text.Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT); n=n.replaceAll("(?i)\\b(comercio|compra|debito|credito|tarjeta|visa|brou|presencial|transaccion|movimiento)\\b"," "); return n.replaceAll("[^a-z0-9]+"," ").replaceAll("\\s+"," ").trim(); }
 
-    private static String merchantKey(String s){
-        if(s==null) return "";
-        String n=java.text.Normalizer.normalize(s,java.text.Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT);
-        n=n.replaceAll("(?i)\\b(comercio|compra|debito|credito|tarjeta|visa|brou|presencial|transaccion|movimiento)\\b"," ");
-        n=n.replaceAll("[^a-z0-9]+"," ").replaceAll("\\s+"," ").trim();
-        return n;
-    }
+    public long addRecurring(String type,double amount,String currency,String category,String description,int day){ ContentValues v=new ContentValues(); v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("day",day); v.put("active",1); return getWritableDatabase().insert("recurring",null,v); }
+    public void materializeRecurring(){ Calendar now=Calendar.getInstance(); String ym=new SimpleDateFormat("yyyy-MM",Locale.US).format(now.getTime()); Cursor c=getReadableDatabase().rawQuery("SELECT id,type,amount,currency,category,description,day,last_ym FROM recurring WHERE active=1",null); while(c.moveToNext()){ String last=c.getString(7); if(ym.equals(last))continue; int day=Math.max(1,Math.min(c.getInt(6),now.getActualMaximum(Calendar.DAY_OF_MONTH))); if(now.get(Calendar.DAY_OF_MONTH)<day)continue; Calendar d=(Calendar)now.clone(); d.set(Calendar.DAY_OF_MONTH,day);d.set(Calendar.HOUR_OF_DAY,12);d.set(Calendar.MINUTE,0);d.set(Calendar.SECOND,0);d.set(Calendar.MILLISECOND,0); addTx(c.getString(1),c.getDouble(2),c.getString(3),c.getString(4),c.getString(5),"Movimiento recurrente",d.getTimeInMillis(),"recurrente"); ContentValues v=new ContentValues();v.put("last_ym",ym);getWritableDatabase().update("recurring",v,"id=?",new String[]{String.valueOf(c.getLong(0))}); } c.close(); }
 
-    public long addRecurring(String type,double amount,String currency,String category,String description,int day){
-        ContentValues v=new ContentValues(); v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("day",day); v.put("active",1);
-        return getWritableDatabase().insert("recurring",null,v);
-    }
-
-    public void materializeRecurring(){
-        Calendar now=Calendar.getInstance(); String ym=new SimpleDateFormat("yyyy-MM",Locale.US).format(now.getTime());
-        Cursor c=getReadableDatabase().rawQuery("SELECT id,type,amount,currency,category,description,day,last_ym FROM recurring WHERE active=1",null);
-        while(c.moveToNext()){
-            String last=c.getString(7); if(ym.equals(last)) continue;
-            int day=Math.max(1,Math.min(c.getInt(6),now.getActualMaximum(Calendar.DAY_OF_MONTH)));
-            if(now.get(Calendar.DAY_OF_MONTH) < day) continue;
-            Calendar d=(Calendar)now.clone(); d.set(Calendar.DAY_OF_MONTH,day); d.set(Calendar.HOUR_OF_DAY,12); d.set(Calendar.MINUTE,0); d.set(Calendar.SECOND,0); d.set(Calendar.MILLISECOND,0);
-            addTx(c.getString(1),c.getDouble(2),c.getString(3),c.getString(4),c.getString(5),"Movimiento recurrente",d.getTimeInMillis(),"recurrente");
-            ContentValues v=new ContentValues(); v.put("last_ym",ym); getWritableDatabase().update("recurring",v,"id=?",new String[]{String.valueOf(c.getLong(0))});
-        }
-        c.close();
-    }
-
-    public Cursor monthTx(){
-        Calendar a=Calendar.getInstance(); a.set(Calendar.DAY_OF_MONTH,1); a.set(Calendar.HOUR_OF_DAY,0); a.set(Calendar.MINUTE,0); a.set(Calendar.SECOND,0); a.set(Calendar.MILLISECOND,0);
-        Calendar b=(Calendar)a.clone(); b.add(Calendar.MONTH,1);
-        return getReadableDatabase().rawQuery("SELECT id,type,amount,currency,category,description,original_text,ts,source FROM tx WHERE ts>=? AND ts<? ORDER BY ts DESC",new String[]{String.valueOf(a.getTimeInMillis()),String.valueOf(b.getTimeInMillis())});
-    }
-
+    public Cursor monthTx(){ Calendar a=Calendar.getInstance();a.set(Calendar.DAY_OF_MONTH,1);a.set(Calendar.HOUR_OF_DAY,0);a.set(Calendar.MINUTE,0);a.set(Calendar.SECOND,0);a.set(Calendar.MILLISECOND,0);Calendar b=(Calendar)a.clone();b.add(Calendar.MONTH,1);return getReadableDatabase().rawQuery("SELECT id,type,amount,currency,category,description,original_text,ts,source FROM tx WHERE ts>=? AND ts<? ORDER BY ts DESC",new String[]{String.valueOf(a.getTimeInMillis()),String.valueOf(b.getTimeInMillis())}); }
+    public Cursor allTx(){ return getReadableDatabase().rawQuery("SELECT id,type,amount,currency,category,description,original_text,ts,source,fingerprint FROM tx ORDER BY ts ASC,id ASC",null); }
     public Cursor allRecurring(){ return getReadableDatabase().rawQuery("SELECT id,type,amount,currency,category,description,day,active FROM recurring ORDER BY type DESC,description",null); }
     public void deleteTx(long id){ getWritableDatabase().delete("tx","id=?",new String[]{String.valueOf(id)}); }
     public void deleteRecurring(long id){ getWritableDatabase().delete("recurring","id=?",new String[]{String.valueOf(id)}); }
