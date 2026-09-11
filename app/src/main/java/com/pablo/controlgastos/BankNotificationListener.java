@@ -45,7 +45,7 @@ public class BankNotificationListener extends NotificationListenerService {
     public static boolean isConnected(){ return activeInstance!=null; }
 
     public static void requestListenerReconnect(){
-        try{ requestRebind(new ComponentName("com.pablo.controlgastos","com.pablo.controlgastos.BankNotificationListener")); }
+        try{ requestRebind(new ComponentName("com.pablo.controlgastos.secure","com.pablo.controlgastos.BankNotificationListener")); }
         catch(Exception ignored){}
     }
 
@@ -74,9 +74,6 @@ public class BankNotificationListener extends NotificationListenerService {
         boolean fromPaganzaApp=pkgNorm.contains("paganza") || titleNorm.contains("paganza");
         boolean mentionsPaganza=norm.contains("paganza");
 
-        // Paganza es la fuente primaria de sus propios pagos. Si una app bancaria
-        // informa un débito cuyo texto dice PAGANZA, se ignora para no duplicar
-        // el mismo gasto que ya registra la notificación de Paganza.
         if(fromPaganzaApp){
             processPaganza(sbn,title,full,norm);
             return;
