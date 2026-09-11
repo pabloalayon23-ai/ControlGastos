@@ -3,6 +3,7 @@
     <application android:allowBackup="false" android:fullBackupContent="false" android:label="Control de Gastos" android:theme="@style/AppTheme" android:supportsRtl="true" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round">
         <activity android:name=".HomeActivity" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN"/><category android:name="android.intent.category.LAUNCHER"/></intent-filter></activity>
         <activity android:name=".AnalyticsActivity" android:exported="false" />
+        <activity android:name=".BudgetActivity" android:exported="false" />
         <activity android:name=".CategorySettingsActivity" android:exported="false" />
         <activity android:name=".RulesActivity" android:exported="false" />
         <activity android:name=".BlacklistActivity" android:exported="false" />
