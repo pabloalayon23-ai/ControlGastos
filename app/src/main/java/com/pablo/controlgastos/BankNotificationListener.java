@@ -68,13 +68,20 @@ public class BankNotificationListener extends NotificationListenerService {
 
         String pkg=sbn.getPackageName()==null?"":sbn.getPackageName();
         String norm=Normalizer.normalize(full,Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT);
+        String titleNorm=Normalizer.normalize(title,Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT);
         String pkgNorm=pkg.toLowerCase(Locale.ROOT);
-        boolean isPaganza=pkgNorm.contains("paganza") || norm.contains("paganza");
 
-        if(isPaganza){
+        boolean fromPaganzaApp=pkgNorm.contains("paganza") || titleNorm.contains("paganza");
+        boolean mentionsPaganza=norm.contains("paganza");
+
+        // Paganza es la fuente primaria de sus propios pagos. Si una app bancaria
+        // informa un débito cuyo texto dice PAGANZA, se ignora para no duplicar
+        // el mismo gasto que ya registra la notificación de Paganza.
+        if(fromPaganzaApp){
             processPaganza(sbn,title,full,norm);
             return;
         }
+        if(mentionsPaganza) return;
 
         processBankNotification(sbn,title,full,norm);
     }
@@ -94,7 +101,6 @@ public class BankNotificationListener extends NotificationListenerService {
     }
 
     private void processPaganza(StatusBarNotification sbn,String title,String full,String norm){
-        // Solo registramos mensajes que claramente indican un pago exitoso/realizado.
         if(!(norm.contains("pago")||norm.contains("pagaste")||norm.contains("pagado")||norm.contains("abonado")||norm.contains("debito"))) return;
         if(norm.contains("rechaz")||norm.contains("fall")||norm.contains("pendiente")||norm.contains("venc")||norm.contains("recordatorio")||norm.contains("devolucion")||norm.contains("anulad")) return;
 
