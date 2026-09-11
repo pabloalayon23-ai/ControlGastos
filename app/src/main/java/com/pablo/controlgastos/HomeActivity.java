@@ -23,15 +23,18 @@ public class HomeActivity extends Activity {
     private TextView gastos, ingresos, saldo, month;
     private boolean unlocked=false, authInProgress=false;
     private final DecimalFormat money=new DecimalFormat("#,##0.00");
-    private final int BG=Color.rgb(11,18,24), CARD=Color.rgb(22,32,41), TEXT=Color.rgb(242,245,247), MUTED=Color.rgb(158,169,178), YELLOW=Color.rgb(255,207,52);
+    private int BG,CARD,TEXT,MUTED,YELLOW,NAV;
 
     @Override public void onCreate(Bundle b){
+        ThemePrefs.applyBaseTheme(this);
         super.onCreate(b);
+        initPalette();
         db=new ExpenseDb(this);
         migrateScreenshotSetting();
         applyScreenSecurity();
         build();
     }
+    private void initPalette(){boolean light=ThemePrefs.isLight(this);BG=light?Color.rgb(246,248,249):Color.rgb(11,18,24);CARD=light?Color.WHITE:Color.rgb(22,32,41);TEXT=light?Color.rgb(31,38,44):Color.rgb(242,245,247);MUTED=light?Color.rgb(95,105,112):Color.rgb(158,169,178);YELLOW=light?Color.rgb(170,126,0):Color.rgb(255,207,52);NAV=light?Color.rgb(232,237,240):Color.rgb(17,25,32);}
     @Override protected void onResume(){ super.onResume(); applyScreenSecurity(); refresh(); getWindow().getDecorView().postDelayed(this::maybeAuthenticate,180); }
     private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     private TextView tv(String s,int size,int color){ TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(color);v.setPadding(dp(8),dp(6),dp(8),dp(6));return v; }
@@ -65,7 +68,7 @@ public class HomeActivity extends Activity {
         TextView mov=tv("Movimientos",20,TEXT);mov.setTypeface(Typeface.DEFAULT,Typeface.BOLD);mov.setPadding(dp(18),dp(5),0,dp(4));outer.addView(mov);
         ScrollView sc=new ScrollView(this);list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);list.setPadding(dp(12),0,dp(12),dp(10));sc.addView(list);outer.addView(sc,new LinearLayout.LayoutParams(-1,0,1));
 
-        LinearLayout nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setPadding(dp(5),dp(4),dp(5),dp(8));nav.setBackgroundColor(Color.rgb(17,25,32));
+        LinearLayout nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setPadding(dp(5),dp(4),dp(5),dp(8));nav.setBackgroundColor(NAV);
         Button inicio=navBtn("⌂\nInicio",true), graficos=navBtn("▥\nGráficos",false), add=navBtn("＋\nAgregar",true), importar=navBtn("⇧\nImportar",false), ajustes=navBtn("⚙\nAjustes",false);
         nav.addView(inicio,new LinearLayout.LayoutParams(0,dp(66),1));nav.addView(graficos,new LinearLayout.LayoutParams(0,dp(66),1));nav.addView(add,new LinearLayout.LayoutParams(0,dp(66),1));nav.addView(importar,new LinearLayout.LayoutParams(0,dp(66),1));nav.addView(ajustes,new LinearLayout.LayoutParams(0,dp(66),1));outer.addView(nav);
         graficos.setOnClickListener(v->startActivity(new Intent(this,AnalyticsActivity.class))); add.setOnClickListener(v->showAdd()); importar.setOnClickListener(v->startActivity(new Intent(this,MainActivity.class))); ajustes.setOnClickListener(v->showSecuritySettings());
@@ -85,7 +88,7 @@ public class HomeActivity extends Activity {
             LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.HORIZONTAL);row.setGravity(Gravity.CENTER_VERTICAL);row.setPadding(dp(12),dp(9),dp(10),dp(9));row.setBackground(bg(CARD,12));LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);rp.setMargins(0,0,0,dp(6));row.setLayoutParams(rp);
             TextView icon=tv(iconFor(cat,desc),23,TEXT);icon.setGravity(Gravity.CENTER);icon.setBackground(bg(colorFor(cat,desc),24));row.addView(icon,new LinearLayout.LayoutParams(dp(48),dp(48)));
             LinearLayout mid=new LinearLayout(this);mid.setOrientation(LinearLayout.VERTICAL);TextView d=tv(desc==null?"Sin descripción":desc,17,TEXT);d.setTypeface(Typeface.DEFAULT,Typeface.BOLD);TextView sub=tv((cat==null?"Sin categoría":cat)+" · "+time.format(new Date(ts)),13,MUTED);mid.addView(d);mid.addView(sub);LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(0,-2,1);mp.setMargins(dp(8),0,dp(5),0);row.addView(mid,mp);
-            TextView amt=tv(("GASTO".equals(type)?"-":"+")+("USD".equals(cur)?"USD ":"$ ")+money.format(a),16,"GASTO".equals(type)?Color.rgb(255,112,112):Color.rgb(92,224,146));amt.setTypeface(Typeface.DEFAULT,Typeface.BOLD);amt.setGravity(Gravity.RIGHT);row.addView(amt);
+            TextView amt=tv(("GASTO".equals(type)?"-":"+")+("USD".equals(cur)?"USD ":"$ ")+money.format(a),16,"GASTO".equals(type)?Color.rgb(220,75,75):Color.rgb(45,160,90));amt.setTypeface(Typeface.DEFAULT,Typeface.BOLD);amt.setGravity(Gravity.RIGHT);row.addView(amt);
             final String fdesc=desc; final long fid=id, fts=ts; final double fa=a; final String ftype=type,fcur=cur,fcat=cat,fsrc=source;
             row.setOnClickListener(v->showEdit(fid,ftype,fa,fcur,fcat,fdesc,fts,fsrc));
             row.setOnLongClickListener(v->{new AlertDialog.Builder(this).setTitle("Eliminar movimiento").setMessage((fdesc==null?"Movimiento":fdesc)+"\n\nEsta acción no se puede deshacer.").setPositiveButton("Eliminar",(x,w)->{db.deleteTx(fid);refresh();}).setNegativeButton("Cancelar",null).show();return true;});list.addView(row);
@@ -132,15 +135,19 @@ public class HomeActivity extends Activity {
 
     private void showSecuritySettings(){
         LinearLayout f=form();
+        Switch light=new Switch(this);light.setText("Modo claro");light.setChecked(ThemePrefs.isLight(this));
         Switch bio=new Switch(this);bio.setText("Bloquear al abrir con huella/biometría");bio.setChecked(biometricLockEnabled());
         Switch shots=new Switch(this);shots.setText("Bloquear capturas y vista en recientes");shots.setChecked(screenshotsBlocked());
         Button tools=button("Importar · recurrentes · exportar");tools.setOnClickListener(v->startActivity(new Intent(this,MainActivity.class)));
-        TextView note=tv("La app no tiene permiso de Internet. Los datos permanecen dentro del almacenamiento privado de Android. Las copias de seguridad del sistema están desactivadas. Las capturas están permitidas por defecto y podés bloquearlas acá si querés.",13,MUTED);
-        f.addView(bio);f.addView(shots);f.addView(note);f.addView(tools);
-        new AlertDialog.Builder(this).setTitle("Seguridad y ajustes").setView(f).setPositiveButton("Guardar",(d,w)->{
+        TextView note=tv("Podés usar ControlGastos en modo oscuro o claro. La app no tiene permiso de Internet, los datos quedan en el almacenamiento privado de Android y las copias de seguridad del sistema están desactivadas.",13,MUTED);
+        f.addView(light);f.addView(bio);f.addView(shots);f.addView(note);f.addView(tools);
+        new AlertDialog.Builder(this).setTitle("Configuración").setView(f).setPositiveButton("Guardar",(d,w)->{
             boolean was=biometricLockEnabled();
+            boolean themeChanged=ThemePrefs.isLight(this)!=light.isChecked();
+            ThemePrefs.setLight(this,light.isChecked());
             securityPrefs().edit().putBoolean("biometric_lock",bio.isChecked()).putBoolean("block_screenshots",shots.isChecked()).apply();
             applyScreenSecurity();
+            if(themeChanged){recreate();return;}
             if(bio.isChecked()&&!was){unlocked=false;getWindow().getDecorView().postDelayed(this::maybeAuthenticate,250);}else if(!bio.isChecked())unlocked=true;
         }).setNegativeButton("Cancelar",null).show();
     }
@@ -194,10 +201,10 @@ public class HomeActivity extends Activity {
             "4. Agregar manualmente\nTocá + Agregar para cargar efectivo u otros movimientos que no lleguen automáticamente.\n\n"+
             "5. Editar o eliminar\nTocá cualquier movimiento para modificar tipo, monto, moneda, descripción, categoría o fecha. Desde la misma ventana también podés eliminarlo. Mantener apretada una fila permite eliminar rápidamente.\n\n"+
             "6. Gráficos y comercios\nEn Gráficos podés analizar gastos por categoría y por comercio. Variantes del mismo comercio se agrupan para mostrar el total gastado. También podés comparar meses y usar presupuestos por categoría.\n\n"+
-            "7. Seguridad\nEn Ajustes podés activar bloqueo biométrico y, si querés, bloquear las capturas de pantalla. Las capturas están permitidas por defecto. Las copias de seguridad del sistema están deshabilitadas y la app no declara permiso de Internet.\n\n"+
+            "7. Apariencia y seguridad\nEn Ajustes podés alternar entre modo oscuro y modo claro, activar bloqueo biométrico y, si querés, bloquear las capturas de pantalla.\n\n"+
             "8. Recurrentes y exportación\nEn Ajustes tocá Importar · recurrentes · exportar para acceder a esas herramientas.\n\n"+
             "SI FALTA UNA COMPRA\nRevisá que el acceso a notificaciones esté activado. Android puede restringir servicios en segundo plano; abrir ControlGastos permite volver a revisar notificaciones activas. Como respaldo siempre podés importar el Excel del banco.\n\n"+
-            "PRIVACIDAD\nLos movimientos se guardan en la base de datos local privada de ControlGastos. El permiso de notificaciones se utiliza para detectar mensajes compatibles con pagos.",15,Color.rgb(45,45,45));t.setPadding(dp(22),dp(10),dp(22),dp(18));sc.addView(t);
+            "PRIVACIDAD\nLos movimientos se guardan en la base de datos local privada de ControlGastos. El permiso de notificaciones se utiliza para detectar mensajes compatibles con pagos.",15,TEXT);t.setPadding(dp(22),dp(10),dp(22),dp(18));sc.addView(t);
         AlertDialog dlg=new AlertDialog.Builder(this).setTitle("Ayuda · ControlGastos").setView(sc).setPositiveButton("Entendido",null).create();dlg.show();
     }
 
