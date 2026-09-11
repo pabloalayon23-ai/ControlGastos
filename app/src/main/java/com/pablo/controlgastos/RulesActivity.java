@@ -7,7 +7,7 @@ public class RulesActivity extends Activity{
  @Override public void onCreate(Bundle b){ThemePrefs.applyBaseTheme(this);super.onCreate(b);build();}
  private int dp(int n){return(int)(n*getResources().getDisplayMetrics().density+.5f);}
  private void build(){boolean light=ThemePrefs.isLight(this);int bg=light?Color.rgb(246,248,249):Color.rgb(11,18,24),text=light?Color.rgb(31,38,44):Color.rgb(242,245,247),muted=light?Color.DKGRAY:Color.LTGRAY;
-  LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(14),dp(14),dp(14),dp(14));root.setBackgroundColor(bg);
+  LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setPadding(dp(14),dp(14),dp(14),dp(14));root.setBackgroundColor(bg);root.setOnApplyWindowInsetsListener((v,i)->{root.setPadding(dp(14),i.getSystemWindowInsetTop()+dp(34),dp(14),i.getSystemWindowInsetBottom()+dp(14));return i;});root.requestApplyInsets();
   TextView title=new TextView(this);title.setText("Palabras y categorías");title.setTextSize(24);title.setTextColor(text);root.addView(title);
   TextView info=new TextView(this);info.setText("Las primeras filas ya vienen con reglas sugeridas de ControlGastos y podés editarlas o borrarlas. Debajo quedan filas libres para agregar las tuyas, hasta 50 en total. Una regla sirve tanto para notificaciones como para categorizar el Excel. No distingue mayúsculas ni tildes.");info.setTextSize(14);info.setTextColor(muted);info.setPadding(0,dp(8),0,dp(10));root.addView(info);
   TextView hint=new TextView(this);hint.setText("SUGERIDAS Y PERSONALIZABLES");hint.setTextSize(12);hint.setTextColor(muted);hint.setPadding(dp(34),0,0,dp(4));root.addView(hint);
