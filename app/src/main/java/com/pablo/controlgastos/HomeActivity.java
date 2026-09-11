@@ -6,7 +6,10 @@ import android.database.Cursor;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.hardware.biometrics.BiometricPrompt;
+import android.os.Build;
 import android.os.Bundle;
+import android.os.CancellationSignal;
 import android.provider.Settings;
 import android.view.*;
 import android.widget.*;
@@ -14,14 +17,16 @@ import java.text.*;
 import java.util.*;
 
 public class HomeActivity extends Activity {
+    private static final int REQ_DEVICE_CREDENTIAL=7001;
     private ExpenseDb db;
     private LinearLayout list;
     private TextView gastos, ingresos, saldo, month;
+    private boolean unlocked=false, authInProgress=false;
     private final DecimalFormat money=new DecimalFormat("#,##0.00");
     private final int BG=Color.rgb(11,18,24), CARD=Color.rgb(22,32,41), TEXT=Color.rgb(242,245,247), MUTED=Color.rgb(158,169,178), YELLOW=Color.rgb(255,207,52);
 
-    @Override public void onCreate(Bundle b){ super.onCreate(b); db=new ExpenseDb(this); build(); }
-    @Override protected void onResume(){ super.onResume(); refresh(); }
+    @Override public void onCreate(Bundle b){ super.onCreate(b); db=new ExpenseDb(this); applyScreenSecurity(); build(); }
+    @Override protected void onResume(){ super.onResume(); applyScreenSecurity(); refresh(); getWindow().getDecorView().postDelayed(this::maybeAuthenticate,180); }
     private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     private TextView tv(String s,int size,int color){ TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(color);v.setPadding(dp(8),dp(6),dp(8),dp(6));return v; }
     private GradientDrawable bg(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g;}
@@ -50,7 +55,7 @@ public class HomeActivity extends Activity {
         LinearLayout nav=new LinearLayout(this);nav.setOrientation(LinearLayout.HORIZONTAL);nav.setPadding(dp(5),dp(4),dp(5),dp(8));nav.setBackgroundColor(Color.rgb(17,25,32));
         Button inicio=navBtn("⌂\nInicio",true), graficos=navBtn("▥\nGráficos",false), add=navBtn("＋\nAgregar",true), importar=navBtn("⇧\nImportar",false), ajustes=navBtn("⚙\nAjustes",false);
         nav.addView(inicio,new LinearLayout.LayoutParams(0,dp(66),1));nav.addView(graficos,new LinearLayout.LayoutParams(0,dp(66),1));nav.addView(add,new LinearLayout.LayoutParams(0,dp(66),1));nav.addView(importar,new LinearLayout.LayoutParams(0,dp(66),1));nav.addView(ajustes,new LinearLayout.LayoutParams(0,dp(66),1));outer.addView(nav);
-        graficos.setOnClickListener(v->startActivity(new Intent(this,AnalyticsActivity.class))); add.setOnClickListener(v->showAdd()); importar.setOnClickListener(v->startActivity(new Intent(this,MainActivity.class))); ajustes.setOnClickListener(v->startActivity(new Intent(this,MainActivity.class)));
+        graficos.setOnClickListener(v->startActivity(new Intent(this,AnalyticsActivity.class))); add.setOnClickListener(v->showAdd()); importar.setOnClickListener(v->startActivity(new Intent(this,MainActivity.class))); ajustes.setOnClickListener(v->showSecuritySettings());
         setContentView(outer);
     }
 
@@ -101,6 +106,66 @@ public class HomeActivity extends Activity {
     private double parseAmount(EditText e){double v=Double.parseDouble(e.getText().toString().trim().replace(',','.'));if(v<=0)throw new IllegalArgumentException();return v;}
     private String sourceLabel(String s){if(s==null)return "desconocido";String n=s.toLowerCase(Locale.ROOT);if(n.contains("paganza"))return "Paganza";if(n.startsWith("notificacion:"))return "Notificación bancaria";if(n.contains("xls")||n.contains("excel")||n.contains("banco"))return "Excel bancario";if(n.contains("recurrente"))return "Recurrente";if(n.contains("manual"))return "Manual";return s;}
 
+    private SharedPreferences securityPrefs(){return getSharedPreferences("security",MODE_PRIVATE);}
+    private boolean biometricLockEnabled(){return securityPrefs().getBoolean("biometric_lock",false);}
+    private boolean screenshotsBlocked(){return securityPrefs().getBoolean("block_screenshots",true);}
+    private void applyScreenSecurity(){if(screenshotsBlocked())getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);}
+
+    private void showSecuritySettings(){
+        LinearLayout f=form();
+        Switch bio=new Switch(this);bio.setText("Bloquear al abrir con huella/biometría");bio.setChecked(biometricLockEnabled());
+        Switch shots=new Switch(this);shots.setText("Bloquear capturas y vista en recientes");shots.setChecked(screenshotsBlocked());
+        Button tools=button("Importar · recurrentes · exportar");tools.setOnClickListener(v->startActivity(new Intent(this,MainActivity.class)));
+        TextView note=tv("La app no tiene permiso de Internet. Los datos permanecen dentro del almacenamiento privado de Android. Las copias de seguridad del sistema están desactivadas.",13,MUTED);
+        f.addView(bio);f.addView(shots);f.addView(note);f.addView(tools);
+        new AlertDialog.Builder(this).setTitle("Seguridad y ajustes").setView(f).setPositiveButton("Guardar",(d,w)->{
+            boolean was=biometricLockEnabled();
+            securityPrefs().edit().putBoolean("biometric_lock",bio.isChecked()).putBoolean("block_screenshots",shots.isChecked()).apply();
+            applyScreenSecurity();
+            if(bio.isChecked()&&!was){unlocked=false;getWindow().getDecorView().postDelayed(this::maybeAuthenticate,250);}else if(!bio.isChecked())unlocked=true;
+        }).setNegativeButton("Cancelar",null).show();
+    }
+
+    private void maybeAuthenticate(){
+        if(!biometricLockEnabled()||unlocked||authInProgress||isFinishing()) return;
+        authInProgress=true;
+        if(Build.VERSION.SDK_INT>=28) authenticateBiometric(); else authenticateDeviceCredential();
+    }
+
+    private void authenticateBiometric(){
+        if(Build.VERSION.SDK_INT<28){authenticateDeviceCredential();return;}
+        try{
+            CancellationSignal cancel=new CancellationSignal();
+            BiometricPrompt prompt=new BiometricPrompt.Builder(this)
+                .setTitle("Desbloquear ControlGastos")
+                .setSubtitle("Confirmá tu identidad para ver tus movimientos")
+                .setNegativeButton("Cancelar",getMainExecutor(),(dialog,which)->{authInProgress=false;finish();})
+                .build();
+            prompt.authenticate(cancel,getMainExecutor(),new BiometricPrompt.AuthenticationCallback(){
+                @Override public void onAuthenticationSucceeded(BiometricPrompt.AuthenticationResult result){super.onAuthenticationSucceeded(result);authInProgress=false;unlocked=true;}
+                @Override public void onAuthenticationError(int code,CharSequence msg){super.onAuthenticationError(code,msg);if(isFinishing())return;authInProgress=false;if(code==BiometricPrompt.BIOMETRIC_ERROR_NO_BIOMETRICS||code==BiometricPrompt.BIOMETRIC_ERROR_HW_NOT_PRESENT||code==BiometricPrompt.BIOMETRIC_ERROR_HW_UNAVAILABLE)authenticateDeviceCredential();}
+            });
+        }catch(Exception e){authInProgress=false;authenticateDeviceCredential();}
+    }
+
+    private void authenticateDeviceCredential(){
+        try{
+            KeyguardManager km=(KeyguardManager)getSystemService(KEYGUARD_SERVICE);
+            if(km==null||!km.isKeyguardSecure()){
+                authInProgress=false;securityPrefs().edit().putBoolean("biometric_lock",false).apply();
+                Toast.makeText(this,"Configurá primero un PIN, patrón o biometría en Android.",Toast.LENGTH_LONG).show();return;
+            }
+            Intent i=km.createConfirmDeviceCredentialIntent("Desbloquear ControlGastos","Confirmá tu identidad para continuar");
+            if(i==null){authInProgress=false;return;}
+            startActivityForResult(i,REQ_DEVICE_CREDENTIAL);
+        }catch(Exception e){authInProgress=false;}
+    }
+
+    @Override protected void onActivityResult(int requestCode,int resultCode,Intent data){
+        super.onActivityResult(requestCode,resultCode,data);
+        if(requestCode==REQ_DEVICE_CREDENTIAL){authInProgress=false;if(resultCode==RESULT_OK)unlocked=true;else finish();}
+    }
+
     private void showHelp(){
         ScrollView sc=new ScrollView(this);TextView t=tv(
             "CÓMO FUNCIONA\n\n"+
@@ -110,9 +175,10 @@ public class HomeActivity extends Activity {
             "4. Agregar manualmente\nTocá + Agregar para cargar efectivo u otros movimientos que no lleguen automáticamente.\n\n"+
             "5. Editar o eliminar\nTocá cualquier movimiento para modificar tipo, monto, moneda, descripción, categoría o fecha. Desde la misma ventana también podés eliminarlo. Mantener apretada una fila permite eliminar rápidamente.\n\n"+
             "6. Gráficos y comercios\nEn Gráficos podés analizar gastos por categoría y por comercio. Variantes del mismo comercio se agrupan para mostrar el total gastado. También podés comparar meses y usar presupuestos por categoría.\n\n"+
-            "7. Recurrentes y exportación\nEn Ajustes/Importar encontrás los movimientos recurrentes, exportación CSV y herramientas adicionales.\n\n"+
+            "7. Seguridad\nEn Ajustes podés activar bloqueo biométrico y elegir si Android puede hacer capturas de pantalla. Las copias de seguridad del sistema están deshabilitadas y la app no declara permiso de Internet.\n\n"+
+            "8. Recurrentes y exportación\nEn Ajustes tocá Importar · recurrentes · exportar para acceder a esas herramientas.\n\n"+
             "SI FALTA UNA COMPRA\nRevisá que el acceso a notificaciones esté activado. Android puede restringir servicios en segundo plano; abrir ControlGastos permite volver a revisar notificaciones activas. Como respaldo siempre podés importar el Excel del banco.\n\n"+
-            "PRIVACIDAD\nLos movimientos se guardan en la base de datos local de ControlGastos. El permiso de notificaciones se utiliza para detectar mensajes compatibles con pagos.",15,Color.rgb(45,45,45));t.setPadding(dp(22),dp(10),dp(22),dp(18));sc.addView(t);
+            "PRIVACIDAD\nLos movimientos se guardan en la base de datos local privada de ControlGastos. El permiso de notificaciones se utiliza para detectar mensajes compatibles con pagos.",15,Color.rgb(45,45,45));t.setPadding(dp(22),dp(10),dp(22),dp(18));sc.addView(t);
         AlertDialog dlg=new AlertDialog.Builder(this).setTitle("Ayuda · ControlGastos").setView(sc).setPositiveButton("Entendido",null).create();dlg.show();
     }
 
