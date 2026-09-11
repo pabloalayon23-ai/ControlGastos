@@ -8,6 +8,9 @@ import java.util.*;
 
 public class ExpenseDb extends SQLiteOpenHelper {
     public static final String DB="gastos.db";
+    private static final int DUPLICATE_DAY_TOLERANCE=4;
+    private static final double DUPLICATE_AMOUNT_TOLERANCE=0.01d;
+
     public ExpenseDb(Context c){ super(c,DB,null,2); }
 
     @Override public void onCreate(SQLiteDatabase db){
@@ -36,7 +39,7 @@ public class ExpenseDb extends SQLiteOpenHelper {
 
     public boolean addImportedTx(String type,double amount,String currency,String category,String description,String original,long ts,String source,String fingerprint){
         if(hasFingerprint(fingerprint)) return false;
-        if("GASTO".equals(type) && linkImportedToNotification(type,amount,currency,ts,fingerprint)) return false;
+        if(linkImportedToNotification(type,amount,currency,description,ts,fingerprint)) return false;
         ContentValues v=new ContentValues(); v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("original_text",original); v.put("ts",ts); v.put("source",source); v.put("fingerprint",fingerprint);
         return getWritableDatabase().insertWithOnConflict("tx",null,v,SQLiteDatabase.CONFLICT_IGNORE)!=-1;
     }
@@ -52,30 +55,63 @@ public class ExpenseDb extends SQLiteOpenHelper {
         boolean found=c.moveToFirst(); c.close(); return found;
     }
 
-    private long[] dayBounds(long ts){
-        Calendar a=Calendar.getInstance(); a.setTimeInMillis(ts); a.set(Calendar.HOUR_OF_DAY,0); a.set(Calendar.MINUTE,0); a.set(Calendar.SECOND,0); a.set(Calendar.MILLISECOND,0);
-        Calendar b=(Calendar)a.clone(); b.add(Calendar.DAY_OF_MONTH,1);
+    private long[] duplicateBounds(long ts){
+        Calendar a=Calendar.getInstance();
+        a.setTimeInMillis(ts);
+        a.set(Calendar.HOUR_OF_DAY,0); a.set(Calendar.MINUTE,0); a.set(Calendar.SECOND,0); a.set(Calendar.MILLISECOND,0);
+        a.add(Calendar.DAY_OF_MONTH,-DUPLICATE_DAY_TOLERANCE);
+        Calendar b=Calendar.getInstance();
+        b.setTimeInMillis(ts);
+        b.set(Calendar.HOUR_OF_DAY,0); b.set(Calendar.MINUTE,0); b.set(Calendar.SECOND,0); b.set(Calendar.MILLISECOND,0);
+        b.add(Calendar.DAY_OF_MONTH,DUPLICATE_DAY_TOLERANCE+1);
         return new long[]{a.getTimeInMillis(),b.getTimeInMillis()};
     }
 
-    public int countUnmatchedNotificationMatches(String type,double amount,String currency,long ts){
-        long[] d=dayBounds(ts);
+    /**
+     * True only when all three dedupe conditions are met:
+     * 1) same amount (within one cent), 2) date within +/-4 calendar days,
+     * 3) merchant/description partially matches after normalization.
+     */
+    public boolean hasImportedDuplicate(String type,double amount,String currency,String description,long ts){
+        long[] d=duplicateBounds(ts);
         Cursor c=getReadableDatabase().rawQuery(
-            "SELECT COUNT(*) FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<0.005 AND ts>=? AND ts<? AND source LIKE 'notificacion:%' AND (fingerprint IS NULL OR fingerprint='')",
-            new String[]{type,currency,String.valueOf(amount),String.valueOf(d[0]),String.valueOf(d[1])});
-        int n=0; if(c.moveToFirst()) n=c.getInt(0); c.close(); return n;
+            "SELECT description FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND ts>=? AND ts<? AND source LIKE 'banco-xls%'",
+            new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1])});
+        try{
+            while(c.moveToNext()) if(merchantMatches(description,c.getString(0))) return true;
+            return false;
+        }finally{ c.close(); }
     }
 
-    public boolean linkImportedToNotification(String type,double amount,String currency,long ts,String fingerprint){
+    public boolean linkImportedToNotification(String type,double amount,String currency,String description,long ts,String fingerprint){
         if(fingerprint==null || fingerprint.isEmpty() || hasFingerprint(fingerprint)) return false;
-        long[] d=dayBounds(ts);
+        long[] d=duplicateBounds(ts);
         Cursor c=getReadableDatabase().rawQuery(
-            "SELECT id FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<0.005 AND ts>=? AND ts<? AND source LIKE 'notificacion:%' AND (fingerprint IS NULL OR fingerprint='') ORDER BY ts LIMIT 1",
-            new String[]{type,currency,String.valueOf(amount),String.valueOf(d[0]),String.valueOf(d[1])});
-        if(!c.moveToFirst()){ c.close(); return false; }
-        long id=c.getLong(0); c.close();
+            "SELECT id,description FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND ts>=? AND ts<? AND source LIKE 'notificacion:%' AND (fingerprint IS NULL OR fingerprint='') ORDER BY ABS(ts-?) ASC",
+            new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1]),String.valueOf(ts)});
+        long id=-1;
+        try{
+            while(c.moveToNext()){
+                if(merchantMatches(description,c.getString(1))){ id=c.getLong(0); break; }
+            }
+        }finally{ c.close(); }
+        if(id<0) return false;
         ContentValues v=new ContentValues(); v.put("fingerprint",fingerprint);
         return getWritableDatabase().update("tx",v,"id=? AND (fingerprint IS NULL OR fingerprint='')",new String[]{String.valueOf(id)})==1;
+    }
+
+    public static boolean merchantMatches(String a,String b){
+        String x=merchantKey(a),y=merchantKey(b);
+        if(x.length()<4 || y.length()<4) return false;
+        return x.contains(y) || y.contains(x);
+    }
+
+    private static String merchantKey(String s){
+        if(s==null) return "";
+        String n=java.text.Normalizer.normalize(s,java.text.Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT);
+        n=n.replaceAll("(?i)\\b(comercio|compra|debito|credito|tarjeta|visa|brou|presencial|transaccion|movimiento)\\b"," ");
+        n=n.replaceAll("[^a-z0-9]+"," ").replaceAll("\\s+"," ").trim();
+        return n;
     }
 
     public long addRecurring(String type,double amount,String currency,String category,String description,int day){
