@@ -66,7 +66,7 @@ public class BankXlsImporter {
     private static class AmountInfo { String type; double amount; AmountInfo(String t,double a){type=t;amount=a;} }
 
     private static int findHeaderRow(Sheet sh){
-        int limit=Math.min(sh.getRows(),30), best=-1,bestScore=0;
+        int limit=Math.min(sh.getRows(),50), best=-1,bestScore=0;
         for(int r=0;r<limit;r++){
             int score=0;
             for(int c=0;c<sh.getColumns();c++){
@@ -104,8 +104,20 @@ public class BankXlsImporter {
     private static Date dateFromCell(Cell cell,String text){
         if(cell instanceof DateCell){ try{return ((DateCell)cell).getDate();}catch(Exception ignored){} }
         String s=text.trim(); if(s.isEmpty())return null;
-        String[] patterns={"dd/MM/yyyy","d/M/yyyy","dd/MM/yy","d/M/yy","dd-MM-yyyy","d-M-yyyy","yyyy-MM-dd","dd/MM/yyyy HH:mm","d/M/yyyy HH:mm"};
-        for(String p:patterns){ try{SimpleDateFormat f=new SimpleDateFormat(p,Locale.US); f.setLenient(false); return f.parse(s);}catch(Exception ignored){} }
+        String[] patterns={
+            "MM/dd/yyyy","M/d/yyyy","MM/dd/yy","M/d/yy",
+            "dd/MM/yyyy","d/M/yyyy","dd/MM/yy","d/M/yy",
+            "dd-MM-yyyy","d-M-yyyy","yyyy-MM-dd",
+            "MM/dd/yyyy HH:mm","M/d/yyyy HH:mm",
+            "dd/MM/yyyy HH:mm","d/M/yyyy HH:mm"
+        };
+        for(String p:patterns){
+            try{
+                SimpleDateFormat f=new SimpleDateFormat(p,Locale.US);
+                f.setLenient(false);
+                return f.parse(s);
+            }catch(Exception ignored){}
+        }
         return null;
     }
 
@@ -155,6 +167,7 @@ public class BankXlsImporter {
         if(hasAny(s,"farmacia","san roque","farmashop")) return "Salud";
         if(hasAny(s,"restaurante","restaurant","delivery","pedidos ya","pedidosya")) return "Comida";
         if(hasAny(s,"transferencia","transf")) return "Transferencias";
+        if(hasAny(s,"paganza")) return "Pagos";
         return "Banco";
     }
 
