@@ -25,7 +25,13 @@ public class HomeActivity extends Activity {
     private final DecimalFormat money=new DecimalFormat("#,##0.00");
     private final int BG=Color.rgb(11,18,24), CARD=Color.rgb(22,32,41), TEXT=Color.rgb(242,245,247), MUTED=Color.rgb(158,169,178), YELLOW=Color.rgb(255,207,52);
 
-    @Override public void onCreate(Bundle b){ super.onCreate(b); db=new ExpenseDb(this); applyScreenSecurity(); build(); }
+    @Override public void onCreate(Bundle b){
+        super.onCreate(b);
+        db=new ExpenseDb(this);
+        migrateScreenshotSetting();
+        applyScreenSecurity();
+        build();
+    }
     @Override protected void onResume(){ super.onResume(); applyScreenSecurity(); refresh(); getWindow().getDecorView().postDelayed(this::maybeAuthenticate,180); }
     private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     private TextView tv(String s,int size,int color){ TextView v=new TextView(this);v.setText(s);v.setTextSize(size);v.setTextColor(color);v.setPadding(dp(8),dp(6),dp(8),dp(6));return v; }
@@ -34,6 +40,13 @@ public class HomeActivity extends Activity {
 
     private void build(){
         LinearLayout outer=new LinearLayout(this); outer.setOrientation(LinearLayout.VERTICAL); outer.setBackgroundColor(BG);
+        outer.setOnApplyWindowInsetsListener((v,insets)->{
+            int bottom=insets.getSystemWindowInsetBottom();
+            v.setPadding(0,0,0,bottom);
+            return insets;
+        });
+        outer.requestApplyInsets();
+
         LinearLayout header=new LinearLayout(this); header.setOrientation(LinearLayout.VERTICAL); header.setPadding(dp(16),dp(14),dp(16),dp(4));
         LinearLayout titleRow=new LinearLayout(this); titleRow.setOrientation(LinearLayout.HORIZONTAL); titleRow.setGravity(Gravity.CENTER_VERTICAL);
         TextView title=tv("ControlGastos",28,TEXT); title.setTypeface(Typeface.DEFAULT,Typeface.BOLD); titleRow.addView(title,new LinearLayout.LayoutParams(0,-2,1));
@@ -108,7 +121,13 @@ public class HomeActivity extends Activity {
 
     private SharedPreferences securityPrefs(){return getSharedPreferences("security",MODE_PRIVATE);}
     private boolean biometricLockEnabled(){return securityPrefs().getBoolean("biometric_lock",false);}
-    private boolean screenshotsBlocked(){return securityPrefs().getBoolean("block_screenshots",true);}
+    private boolean screenshotsBlocked(){return securityPrefs().getBoolean("block_screenshots",false);}
+    private void migrateScreenshotSetting(){
+        SharedPreferences p=securityPrefs();
+        if(!p.getBoolean("screenshots_default_migrated_v142",false)){
+            p.edit().putBoolean("block_screenshots",false).putBoolean("screenshots_default_migrated_v142",true).apply();
+        }
+    }
     private void applyScreenSecurity(){if(screenshotsBlocked())getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_SECURE);}
 
     private void showSecuritySettings(){
@@ -116,7 +135,7 @@ public class HomeActivity extends Activity {
         Switch bio=new Switch(this);bio.setText("Bloquear al abrir con huella/biometría");bio.setChecked(biometricLockEnabled());
         Switch shots=new Switch(this);shots.setText("Bloquear capturas y vista en recientes");shots.setChecked(screenshotsBlocked());
         Button tools=button("Importar · recurrentes · exportar");tools.setOnClickListener(v->startActivity(new Intent(this,MainActivity.class)));
-        TextView note=tv("La app no tiene permiso de Internet. Los datos permanecen dentro del almacenamiento privado de Android. Las copias de seguridad del sistema están desactivadas.",13,MUTED);
+        TextView note=tv("La app no tiene permiso de Internet. Los datos permanecen dentro del almacenamiento privado de Android. Las copias de seguridad del sistema están desactivadas. Las capturas están permitidas por defecto y podés bloquearlas acá si querés.",13,MUTED);
         f.addView(bio);f.addView(shots);f.addView(note);f.addView(tools);
         new AlertDialog.Builder(this).setTitle("Seguridad y ajustes").setView(f).setPositiveButton("Guardar",(d,w)->{
             boolean was=biometricLockEnabled();
@@ -175,7 +194,7 @@ public class HomeActivity extends Activity {
             "4. Agregar manualmente\nTocá + Agregar para cargar efectivo u otros movimientos que no lleguen automáticamente.\n\n"+
             "5. Editar o eliminar\nTocá cualquier movimiento para modificar tipo, monto, moneda, descripción, categoría o fecha. Desde la misma ventana también podés eliminarlo. Mantener apretada una fila permite eliminar rápidamente.\n\n"+
             "6. Gráficos y comercios\nEn Gráficos podés analizar gastos por categoría y por comercio. Variantes del mismo comercio se agrupan para mostrar el total gastado. También podés comparar meses y usar presupuestos por categoría.\n\n"+
-            "7. Seguridad\nEn Ajustes podés activar bloqueo biométrico y elegir si Android puede hacer capturas de pantalla. Las copias de seguridad del sistema están deshabilitadas y la app no declara permiso de Internet.\n\n"+
+            "7. Seguridad\nEn Ajustes podés activar bloqueo biométrico y, si querés, bloquear las capturas de pantalla. Las capturas están permitidas por defecto. Las copias de seguridad del sistema están deshabilitadas y la app no declara permiso de Internet.\n\n"+
             "8. Recurrentes y exportación\nEn Ajustes tocá Importar · recurrentes · exportar para acceder a esas herramientas.\n\n"+
             "SI FALTA UNA COMPRA\nRevisá que el acceso a notificaciones esté activado. Android puede restringir servicios en segundo plano; abrir ControlGastos permite volver a revisar notificaciones activas. Como respaldo siempre podés importar el Excel del banco.\n\n"+
             "PRIVACIDAD\nLos movimientos se guardan en la base de datos local privada de ControlGastos. El permiso de notificaciones se utiliza para detectar mensajes compatibles con pagos.",15,Color.rgb(45,45,45));t.setPadding(dp(22),dp(10),dp(22),dp(18));sc.addView(t);
