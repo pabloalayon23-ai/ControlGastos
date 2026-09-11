@@ -17,11 +17,12 @@ import java.util.*;
 
 public class MainActivity extends Activity {
     private ExpenseDb db;
-    private final int BG=Color.rgb(11,18,24), CARD=Color.rgb(22,32,41), TEXT=Color.rgb(242,245,247), MUTED=Color.rgb(158,169,178), YELLOW=Color.rgb(255,207,52);
+    private int BG,CARD,TEXT,MUTED,YELLOW;
     private final DecimalFormat money=new DecimalFormat("#,##0.00");
     private static final int REQ_EXPORT=44, REQ_IMPORT=45;
 
-    @Override public void onCreate(Bundle b){super.onCreate(b);db=new ExpenseDb(this);build();}
+    @Override public void onCreate(Bundle b){ThemePrefs.applyBaseTheme(this);super.onCreate(b);initPalette();db=new ExpenseDb(this);build();}
+    private void initPalette(){boolean light=ThemePrefs.isLight(this);BG=light?Color.rgb(246,248,249):Color.rgb(11,18,24);CARD=light?Color.WHITE:Color.rgb(22,32,41);TEXT=light?Color.rgb(31,38,44):Color.rgb(242,245,247);MUTED=light?Color.rgb(95,105,112):Color.rgb(158,169,178);YELLOW=Color.rgb(255,207,52);}
     private int dp(int n){return (int)(n*getResources().getDisplayMetrics().density+.5f);}
     private GradientDrawable bg(int color,int radius){GradientDrawable g=new GradientDrawable();g.setColor(color);g.setCornerRadius(dp(radius));return g;}
     private TextView tv(String s,int sp,int color){TextView v=new TextView(this);v.setText(s);v.setTextSize(sp);v.setTextColor(color);v.setPadding(dp(10),dp(8),dp(10),dp(8));return v;}
@@ -39,7 +40,7 @@ public class MainActivity extends Activity {
         Button add=btn("＋ Agregar movimiento manual");
         Button notif=btn(notificationEnabled()?"🟢 Lectura de notificaciones: activa":"🔴 Activar lectura de notificaciones");
         for(Button b:new Button[]{importBank,export,rec,add,notif}){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,dp(58));p.setMargins(0,dp(7),0,dp(7));root.addView(b,p);}
-        TextView note=tv("ControlGastos se mantiene siempre en modo oscuro, incluida esta pantalla.",13,MUTED);root.addView(note);
+        TextView note=tv("Esta pantalla sigue el modo claro u oscuro elegido en Ajustes.",13,MUTED);root.addView(note);
         setContentView(sc);
 
         importBank.setOnClickListener(v->pickBankFile());
