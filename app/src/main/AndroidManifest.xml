@@ -5,6 +5,7 @@
         <activity android:name=".AnalyticsActivity" android:exported="false" />
         <activity android:name=".RulesActivity" android:exported="false" />
         <activity android:name=".BlacklistActivity" android:exported="false" />
+        <activity android:name=".NotificationSetupActivity" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="true" android:label="Importar en ControlGastos">
             <intent-filter><action android:name="android.intent.action.VIEW"/><category android:name="android.intent.category.DEFAULT"/><data android:mimeType="application/vnd.ms-excel"/></intent-filter>
             <intent-filter><action android:name="android.intent.action.SEND"/><category android:name="android.intent.category.DEFAULT"/><data android:mimeType="application/vnd.ms-excel"/></intent-filter>
