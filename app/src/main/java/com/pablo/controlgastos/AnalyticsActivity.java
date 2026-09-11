@@ -27,7 +27,7 @@ public class AnalyticsActivity extends Activity {
     private Button tab(String s){Button b=new Button(this);b.setText(s);b.setAllCaps(false);b.setTextColor(TEXT);b.setBackground(bg(CARD,12));return b;}
 
     private void build(){
-        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(BG);
+        LinearLayout root=new LinearLayout(this);root.setOrientation(LinearLayout.VERTICAL);root.setBackgroundColor(BG);root.setOnApplyWindowInsetsListener((v,i)->{root.setPadding(0,i.getSystemWindowInsetTop()+dp(22),0,i.getSystemWindowInsetBottom());return i;});root.requestApplyInsets();
         LinearLayout head=new LinearLayout(this);head.setOrientation(LinearLayout.HORIZONTAL);head.setGravity(Gravity.CENTER_VERTICAL);head.setPadding(dp(12),dp(12),dp(12),dp(6));
         Button back=tab("‹");back.setOnClickListener(v->finish());head.addView(back,new LinearLayout.LayoutParams(dp(48),dp(48)));
         LinearLayout titles=new LinearLayout(this);titles.setOrientation(LinearLayout.VERTICAL);TextView t=tv("Gráficos y análisis",24,TEXT);t.setTypeface(Typeface.DEFAULT,Typeface.BOLD);titles.addView(t);String m=new SimpleDateFormat("MMMM yyyy",new Locale("es","UY")).format(new Date());titles.addView(tv(m.substring(0,1).toUpperCase()+m.substring(1),14,MUTED));head.addView(titles,new LinearLayout.LayoutParams(0,-2,1));root.addView(head);
