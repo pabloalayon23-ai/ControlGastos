@@ -15,7 +15,11 @@ public class BankXlsImporter {
   try{
    wb=Workbook.getWorkbook(in);
    Result out=new Result();Map<String,Integer> occ=new HashMap<>();
-   for(Sheet sh:wb.getSheets())parseSheet(context,sh,out,occ);
+   for(Sheet sh:wb.getSheets()){
+    int before=out.rows.size();
+    parseSheet(context,sh,out,occ);
+    if(out.rows.size()==before)parseEbroUFallback(context,sh,out,occ);
+   }
    if(out.rows.isEmpty())throw new IOException("No encontré movimientos reconocibles en el Excel del banco");
    return out;
   }finally{if(wb!=null)wb.close();try{in.close();}catch(Exception ignored){}}
@@ -27,8 +31,7 @@ public class BankXlsImporter {
   HeaderMap hm=buildHeaderMap(sh,header);if(hm.date<0||(hm.debit<0&&hm.credit<0&&hm.amount<0))return;
   boolean started=false;int invalidAfterStart=0;
   for(int r=header+1;r<rows;r++){
-   String[] cells=new String[cols];boolean any=false;
-   for(int c=0;c<cols;c++){cells[c]=clean(sh.getCell(c,r).getContents());if(!cells[c].isEmpty())any=true;}
+   String[] cells=readRow(sh,r,cols);boolean any=false;for(String x:cells)if(!x.isEmpty()){any=true;break;}
    if(!any){if(started&&++invalidAfterStart>=8)break;continue;}
    String original=joinRaw(cells);
    if(looksLikeFooter(original)){if(started)break;else continue;}
@@ -37,13 +40,68 @@ public class BankXlsImporter {
    if(date==null||ai==null||ai.amount<=0){out.ignored++;if(started&&++invalidAfterStart>=8)break;continue;}
    started=true;invalidAfterStart=0;
    String desc=findDescription(hm,cells),currency=findCurrency(cells,sh.getName());
-   String category=DetectionRules.categoryFor(context,original,classify(desc));
-   String day=new SimpleDateFormat("yyyy-MM-dd",Locale.US).format(date);
-   String canonical=day+"|"+ai.type+"|"+currency+"|"+String.format(Locale.US,"%.2f",ai.amount)+"|"+norm(desc)+"|"+norm(original);
-   int n=occ.containsKey(canonical)?occ.get(canonical)+1:1;occ.put(canonical,n);
-   Tx tx=new Tx();tx.type=ai.type;tx.amount=ai.amount;tx.currency=currency;tx.category=category;tx.description=desc.isEmpty()?"Movimiento bancario":desc;tx.original=original;tx.ts=atNoon(date).getTime();tx.fingerprint=sha256("bank-xls|"+canonical+"|occ="+n);out.rows.add(tx);
+   addTx(context,out,occ,date,ai,currency,desc,original);
   }
  }
+
+ // Fallback específico para el XLS real de eBROU/BROU.
+ // El archivo contiene información de saldos al principio y un pie al final.
+ // La tabla útil usa A=Fecha, B=Descripción, G=Débito, H=Crédito.
+ private static void parseEbroUFallback(Context context,Sheet sh,Result out,Map<String,Integer> occ){
+  int rows=sh.getRows(),cols=sh.getColumns();if(rows<1||cols<2)return;
+  int header=-1;
+  for(int r=0;r<rows;r++){
+   String first=norm(sh.getCell(0,r).getContents());
+   String all=rowText(sh,r,cols);
+   if(first.contains("fecha")&&all.contains("descripcion")){header=r;break;}
+  }
+  if(header<0){
+   for(int r=0;r<rows;r++){
+    if(rowText(sh,r,cols).contains("movimientos")){
+     for(int k=r+1;k<Math.min(rows,r+8);k++){
+      if(norm(sh.getCell(0,k).getContents()).contains("fecha")){header=k;break;}
+     }
+     if(header>=0)break;
+    }
+   }
+  }
+  if(header<0)return;
+
+  int debitCol=cols>6?6:Math.max(0,cols-2),creditCol=cols>7?7:Math.max(0,cols-1);
+  int invalid=0;boolean started=false;
+  for(int r=header+1;r<rows;r++){
+   String[] cells=readRow(sh,r,cols);String original=joinRaw(cells);
+   if(original.isEmpty()){if(started&&++invalid>=8)break;continue;}
+   if(looksLikeFooter(original))break;
+
+   Date date=dateFromCell(sh.getCell(0,r),cells.length>0?cells[0]:"");
+   if(date==null){if(started&&++invalid>=8)break;continue;}
+
+   Double debit=debitCol<cols?cellNumber(sh.getCell(debitCol,r),cells[debitCol]):null;
+   Double credit=creditCol<cols?cellNumber(sh.getCell(creditCol,r),cells[creditCol]):null;
+   AmountInfo ai=null;
+   if(debit!=null&&Math.abs(debit)>0.0001)ai=new AmountInfo("GASTO",Math.abs(debit));
+   else if(credit!=null&&Math.abs(credit)>0.0001)ai=new AmountInfo("INGRESO",Math.abs(credit));
+   if(ai==null){if(started&&++invalid>=8)break;continue;}
+
+   started=true;invalid=0;
+   String desc=cells.length>1?cells[1]:"";
+   if(desc.isEmpty())desc="Movimiento bancario";
+   String currency=findCurrency(cells,sh.getName());
+   addTx(context,out,occ,date,ai,currency,desc,original);
+  }
+ }
+
+ private static void addTx(Context context,Result out,Map<String,Integer> occ,Date date,AmountInfo ai,String currency,String desc,String original){
+  String category=DetectionRules.categoryFor(context,original,classify(desc));
+  String day=new SimpleDateFormat("yyyy-MM-dd",Locale.US).format(date);
+  String canonical=day+"|"+ai.type+"|"+currency+"|"+String.format(Locale.US,"%.2f",ai.amount)+"|"+norm(desc)+"|"+norm(original);
+  int n=occ.containsKey(canonical)?occ.get(canonical)+1:1;occ.put(canonical,n);
+  Tx tx=new Tx();tx.type=ai.type;tx.amount=ai.amount;tx.currency=currency;tx.category=category;tx.description=desc.isEmpty()?"Movimiento bancario":desc;tx.original=original;tx.ts=atNoon(date).getTime();tx.fingerprint=sha256("bank-xls|"+canonical+"|occ="+n);out.rows.add(tx);
+ }
+
+ private static String[] readRow(Sheet sh,int r,int cols){String[] cells=new String[cols];for(int c=0;c<cols;c++)cells[c]=clean(sh.getCell(c,r).getContents());return cells;}
+ private static String rowText(Sheet sh,int r,int cols){return norm(joinRaw(readRow(sh,r,cols)));}
 
  private static class HeaderMap{int date=-1,desc=-1,debit=-1,credit=-1,amount=-1;}
  private static class AmountInfo{String type;double amount;AmountInfo(String t,double a){type=t;amount=a;}}
@@ -51,11 +109,11 @@ public class BankXlsImporter {
  private static int findHeaderRow(Sheet sh){
   int best=-1,bestScore=-1;
   for(int r=0;r<sh.getRows();r++){
-   boolean hasDate=false,hasDebit=false,hasCredit=false,hasDesc=false,hasAmount=false;int score=0;
+   boolean hasDate=false,hasDebit=false,hasCredit=false,hasAmount=false;int score=0;
    for(int c=0;c<sh.getColumns();c++){
     String s=norm(sh.getCell(c,r).getContents());
-    if(s.equals("fecha")||s.equals("date")){hasDate=true;score+=5;}
-    if(hasAny(s,"descripcion","concepto","detalle","movimiento","leyenda")){hasDesc=true;score+=3;}
+    if(s.contains("fecha")||s.equals("date")){hasDate=true;score+=5;}
+    if(hasAny(s,"descripcion","concepto","detalle","movimiento","leyenda"))score+=3;
     if(hasAny(s,"debito","debe","egreso","cargo","retiro")){hasDebit=true;score+=3;}
     if(hasAny(s,"credito","haber","ingreso","deposito")){hasCredit=true;score+=3;}
     if(hasAny(s,"importe","monto","amount")){hasAmount=true;score+=2;}
@@ -70,7 +128,7 @@ public class BankXlsImporter {
   HeaderMap h=new HeaderMap();if(header<0)return h;
   for(int c=0;c<sh.getColumns();c++){
    String s=norm(sh.getCell(c,header).getContents());
-   if(h.date<0&&(s.equals("fecha")||s.equals("date")))h.date=c;
+   if(h.date<0&&(s.contains("fecha")||s.equals("date")))h.date=c;
    if(h.desc<0&&hasAny(s,"concepto","descripcion","detalle","movimiento","leyenda","referencia"))h.desc=c;
    if(h.debit<0&&hasAny(s,"debito","debe","egreso","cargo","retiro"))h.debit=c;
    if(h.credit<0&&hasAny(s,"credito","haber","ingreso","deposito"))h.credit=c;
@@ -86,13 +144,14 @@ public class BankXlsImporter {
  }
 
  private static Date dateFromCell(Cell cell,String text){
-  String s=text==null?"":text.trim();
-  if(!s.isEmpty()){
-   String[] p={"MM/dd/yyyy","M/d/yyyy","MM/dd/yy","M/d/yy","dd/MM/yyyy","d/M/yyyy","dd/MM/yy","d/M/yy","dd-MM-yyyy","d-M-yyyy","yyyy-MM-dd","MM/dd/yyyy HH:mm","M/d/yyyy HH:mm","dd/MM/yyyy HH:mm","d/M/yyyy HH:mm"};
-   for(String x:p)try{SimpleDateFormat f=new SimpleDateFormat(x,Locale.US);f.setLenient(false);Date d=f.parse(s);if(d!=null)return d;}catch(Exception ignored){}
-  }
   if(cell instanceof DateCell)try{return((DateCell)cell).getDate();}catch(Exception ignored){}
   if(cell instanceof NumberCell)try{double serial=((NumberCell)cell).getValue();if(serial>20000&&serial<80000)return excelSerialToDate(serial);}catch(Exception ignored){}
+  String s=text==null?"":text.trim();
+  if(!s.isEmpty()){
+   String[] p={"dd/MM/yyyy","d/M/yyyy","dd/MM/yy","d/M/yy","dd-MM-yyyy","d-M-yyyy","yyyy-MM-dd","MM/dd/yyyy","M/d/yyyy","MM/dd/yy","M/d/yy","dd/MM/yyyy HH:mm","d/M/yyyy HH:mm","MM/dd/yyyy HH:mm","M/d/yyyy HH:mm"};
+   for(String x:p)try{SimpleDateFormat f=new SimpleDateFormat(x,Locale.US);f.setLenient(false);Date d=f.parse(s);if(d!=null)return d;}catch(Exception ignored){}
+   Double serial=parseNumber(s);if(serial!=null&&serial>20000&&serial<80000)return excelSerialToDate(serial);
+  }
   return null;
  }
 
