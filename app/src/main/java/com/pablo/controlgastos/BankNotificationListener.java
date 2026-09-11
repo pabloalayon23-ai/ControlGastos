@@ -17,6 +17,8 @@ public class BankNotificationListener extends NotificationListenerService {
     private static final Pattern BROU_COMERCIO = Pattern.compile("(?i)Comercio\\s*:\\s*([^\\n\\r]+)");
     private static final Pattern BROU_APROBADO = Pattern.compile("(?i)Aprobado\\s*:\\s*([0-9A-Za-z-]+)");
     private static final Pattern BROU_FECHA = Pattern.compile("(?i)Fecha\\s*:\\s*(\\d{4}-\\d{2}-\\d{2}\\s+\\d{2}:\\d{2}:\\d{2})");
+    private static final Pattern PAGANZA_SERVICE = Pattern.compile("(?i)(?:servicio|empresa|comercio|beneficiario|concepto)\\s*:\\s*([^\\n\\r]+)");
+    private static final Pattern PAGANZA_REFERENCE = Pattern.compile("(?i)(?:referencia|operaci[oó]n|comprobante|transacci[oó]n)\\s*:?\\s*([0-9A-Za-z-]+)");
 
     @Override public void onListenerConnected(){
         super.onListenerConnected();
@@ -37,9 +39,7 @@ public class BankNotificationListener extends NotificationListenerService {
 
     public static void hourlyCheck(){
         BankNotificationListener instance=activeInstance;
-        if(instance!=null){
-            instance.scanActiveNotifications();
-        }
+        if(instance!=null) instance.scanActiveNotifications();
     }
 
     public static boolean isConnected(){ return activeInstance!=null; }
@@ -57,9 +57,7 @@ public class BankNotificationListener extends NotificationListenerService {
         }catch(Exception ignored){}
     }
 
-    @Override public void onNotificationPosted(StatusBarNotification sbn){
-        processNotification(sbn);
-    }
+    @Override public void onNotificationPosted(StatusBarNotification sbn){ processNotification(sbn); }
 
     private void processNotification(StatusBarNotification sbn){
         if(sbn==null || sbn.getNotification()==null) return;
@@ -68,7 +66,20 @@ public class BankNotificationListener extends NotificationListenerService {
         String full=collectNotificationText(e);
         if(full.isEmpty()) return;
 
+        String pkg=sbn.getPackageName()==null?"":sbn.getPackageName();
         String norm=Normalizer.normalize(full,Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT);
+        String pkgNorm=pkg.toLowerCase(Locale.ROOT);
+        boolean isPaganza=pkgNorm.contains("paganza") || norm.contains("paganza");
+
+        if(isPaganza){
+            processPaganza(sbn,title,full,norm);
+            return;
+        }
+
+        processBankNotification(sbn,title,full,norm);
+    }
+
+    private void processBankNotification(StatusBarNotification sbn,String title,String full,String norm){
         if(!(norm.contains("compra")||norm.contains("pago")||norm.contains("debito")||norm.contains("consumo")||norm.contains("transaccion")||norm.contains("transferencia"))) return;
         if(norm.contains("anulad")||norm.contains("rechaz")||norm.contains("devolucion")||norm.contains("recibiste")||norm.contains("acredit")) return;
 
@@ -79,7 +90,38 @@ public class BankNotificationListener extends NotificationListenerService {
             Matcher m=MONEY.matcher(full); if(!m.find()) return;
             sym=m.group(1); raw=m.group(2).trim();
         }
+        saveExpense(sbn,title,full,sym,raw,false);
+    }
 
+    private void processPaganza(StatusBarNotification sbn,String title,String full,String norm){
+        // Solo registramos mensajes que claramente indican un pago exitoso/realizado.
+        if(!(norm.contains("pago")||norm.contains("pagaste")||norm.contains("pagado")||norm.contains("abonado")||norm.contains("debito"))) return;
+        if(norm.contains("rechaz")||norm.contains("fall")||norm.contains("pendiente")||norm.contains("venc")||norm.contains("recordatorio")||norm.contains("devolucion")||norm.contains("anulad")) return;
+
+        Matcher m=MONEY.matcher(full);
+        if(!m.find()) return;
+        String sym=m.group(1), raw=m.group(2).trim();
+        double amount=parseLatam(raw.replace(" ","")); if(amount<=0) return;
+        String upper=sym.toUpperCase(Locale.ROOT);
+        String currency=(upper.contains("USD")||upper.contains("U$S")||upper.contains("US$"))?"USD":"UYU";
+
+        String description=title.isEmpty()?"Pago Paganza":title;
+        Matcher sm=PAGANZA_SERVICE.matcher(full);
+        if(sm.find()) description=sm.group(1).trim();
+        if(description.toLowerCase(Locale.ROOT).contains("paganza") && description.length()<18) description="Pago Paganza";
+
+        long ts=System.currentTimeMillis();
+        String unique="";
+        Matcher rm=PAGANZA_REFERENCE.matcher(full);
+        if(rm.find()) unique="PAGANZA_REF:"+rm.group(1).trim();
+        if(unique.isEmpty()) unique="PAGANZA:"+currency+":"+amount+":"+normalizeKey(description)+":"+(ts/60000L);
+
+        ExpenseDb db=new ExpenseDb(this);
+        if(db.existsOriginal(unique)) return;
+        db.addTx("GASTO",amount,currency,classifyPaganza(description),description,unique,ts,"notificacion:Paganza");
+    }
+
+    private void saveExpense(StatusBarNotification sbn,String title,String full,String sym,String raw,boolean paganza){
         double amount=parseLatam(raw.replace(" ","")); if(amount<=0) return;
         String upper=sym.toUpperCase(Locale.ROOT);
         String currency=(upper.contains("USD")||upper.contains("U$S")||upper.contains("US$"))?"USD":"UYU";
@@ -102,6 +144,20 @@ public class BankNotificationListener extends NotificationListenerService {
         ExpenseDb db=new ExpenseDb(this);
         if(db.existsOriginal(unique)) return;
         db.addTx("GASTO",amount,currency,"Sin categoría",description,unique,ts,"notificacion:"+sbn.getPackageName());
+    }
+
+    private static String classifyPaganza(String description){
+        String s=normalizeKey(description);
+        if(s.contains("ute")||s.contains("ose")||s.contains("antel")||s.contains("movistar")||s.contains("claro")||s.contains("internet")) return "Servicios";
+        if(s.contains("contribucion")||s.contains("tribut")||s.contains("patente")||s.contains("sucive")||s.contains("intendencia")) return "Impuestos";
+        if(s.contains("colegio")||s.contains("escuela")||s.contains("universidad")) return "Educación";
+        if(s.contains("seguro")||s.contains("bse")) return "Seguros";
+        return "Pagos";
+    }
+
+    private static String normalizeKey(String s){
+        if(s==null) return "";
+        return Normalizer.normalize(s,Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT).replaceAll("\\s+"," ").trim();
     }
 
     private static String collectNotificationText(Bundle e){
