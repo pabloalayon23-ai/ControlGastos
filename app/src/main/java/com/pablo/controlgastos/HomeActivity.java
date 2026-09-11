@@ -101,8 +101,11 @@ public class HomeActivity extends Activity {
 
     private void showAdd(){
         LinearLayout f=form(); Spinner type=typeSpinner("GASTO"); EditText amount=amountEdit(0); Spinner currency=currencySpinner("UYU");EditText desc=textEdit("Descripción","");EditText cat=textEdit("Categoría","");
-        f.addView(type);f.addView(amount);f.addView(currency);f.addView(desc);f.addView(cat);
-        new AlertDialog.Builder(this).setTitle("Nuevo movimiento").setView(f).setPositiveButton("Guardar",(d,w)->{try{double a=parseAmount(amount);String de=desc.getText().toString().trim();if(de.isEmpty())de="Sin descripción";String ca=cat.getText().toString().trim();if(ca.isEmpty())ca="Sin categoría";db.addTx(type.getSelectedItem().toString(),a,currency.getSelectedItem().toString(),ca,de,"",System.currentTimeMillis(),"manual");refresh();}catch(Exception e){Toast.makeText(this,"Revisá el monto",Toast.LENGTH_LONG).show();}}).setNegativeButton("Cancelar",null).show();
+        final Calendar chosen=Calendar.getInstance();
+        Button date=button("Fecha: "+new SimpleDateFormat("dd/MM/yyyy",Locale.US).format(chosen.getTime()));
+        date.setOnClickListener(v->new DatePickerDialog(this,(view,y,m,d)->{chosen.set(Calendar.YEAR,y);chosen.set(Calendar.MONTH,m);chosen.set(Calendar.DAY_OF_MONTH,d);date.setText("Fecha: "+new SimpleDateFormat("dd/MM/yyyy",Locale.US).format(chosen.getTime()));},chosen.get(Calendar.YEAR),chosen.get(Calendar.MONTH),chosen.get(Calendar.DAY_OF_MONTH)).show());
+        f.addView(type);f.addView(amount);f.addView(currency);f.addView(desc);f.addView(cat);f.addView(date);
+        new AlertDialog.Builder(this).setTitle("Nuevo movimiento").setView(f).setPositiveButton("Guardar",(d,w)->{try{double a=parseAmount(amount);String de=desc.getText().toString().trim();if(de.isEmpty())de="Sin descripción";String ca=cat.getText().toString().trim();if(ca.isEmpty())ca="Sin categoría";db.addTx(type.getSelectedItem().toString(),a,currency.getSelectedItem().toString(),ca,de,"",chosen.getTimeInMillis(),"manual");refresh();}catch(Exception e){Toast.makeText(this,"Revisá el monto",Toast.LENGTH_LONG).show();}}).setNegativeButton("Cancelar",null).show();
     }
 
     private void showEdit(long id,String currentType,double currentAmount,String currentCurrency,String currentCategory,String currentDesc,long currentTs,String source){
@@ -198,7 +201,7 @@ public class HomeActivity extends Activity {
             "1. Registro automático\nControlGastos puede leer notificaciones de pagos de eBROU/BROU y Paganza cuando autorizás el acceso a notificaciones. No necesita tu usuario ni contraseña bancaria.\n\n"+
             "2. Paganza\nLos pagos reconocidos desde Paganza se guardan automáticamente. Si después el banco muestra un débito identificado como PAGANZA, se ignora para evitar contar el mismo gasto dos veces.\n\n"+
             "3. Importar Excel del banco\nEn Importar podés seleccionar el archivo .xls descargado del banco. La app usa huellas internas para evitar volver a cargar movimientos ya importados y concilia compras capturadas previamente por notificación.\n\n"+
-            "4. Agregar manualmente\nTocá + Agregar para cargar efectivo u otros movimientos que no lleguen automáticamente.\n\n"+
+            "4. Agregar manualmente\nTocá + Agregar para cargar efectivo u otros movimientos que no lleguen automáticamente. Podés elegir la fecha antes de guardar.\n\n"+
             "5. Editar o eliminar\nTocá cualquier movimiento para modificar tipo, monto, moneda, descripción, categoría o fecha. Desde la misma ventana también podés eliminarlo. Mantener apretada una fila permite eliminar rápidamente.\n\n"+
             "6. Gráficos y comercios\nEn Gráficos podés analizar gastos por categoría y por comercio. Variantes del mismo comercio se agrupan para mostrar el total gastado. También podés comparar meses y usar presupuestos por categoría.\n\n"+
             "7. Apariencia y seguridad\nEn Ajustes podés alternar entre modo oscuro y modo claro, activar bloqueo biométrico y, si querés, bloquear las capturas de pantalla.\n\n"+
