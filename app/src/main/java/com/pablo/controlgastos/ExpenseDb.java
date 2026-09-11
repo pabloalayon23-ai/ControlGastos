@@ -43,6 +43,32 @@ public class ExpenseDb extends SQLiteOpenHelper {
         boolean found=c.moveToFirst(); c.close(); return found;
     }
 
+    private long[] dayBounds(long ts){
+        Calendar a=Calendar.getInstance(); a.setTimeInMillis(ts); a.set(Calendar.HOUR_OF_DAY,0); a.set(Calendar.MINUTE,0); a.set(Calendar.SECOND,0); a.set(Calendar.MILLISECOND,0);
+        Calendar b=(Calendar)a.clone(); b.add(Calendar.DAY_OF_MONTH,1);
+        return new long[]{a.getTimeInMillis(),b.getTimeInMillis()};
+    }
+
+    public int countUnmatchedNotificationMatches(String type,double amount,String currency,long ts){
+        long[] d=dayBounds(ts);
+        Cursor c=getReadableDatabase().rawQuery(
+            "SELECT COUNT(*) FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<0.005 AND ts>=? AND ts<? AND source LIKE 'notificacion:%' AND (fingerprint IS NULL OR fingerprint='')",
+            new String[]{type,currency,String.valueOf(amount),String.valueOf(d[0]),String.valueOf(d[1])});
+        int n=0; if(c.moveToFirst()) n=c.getInt(0); c.close(); return n;
+    }
+
+    public boolean linkImportedToNotification(String type,double amount,String currency,long ts,String fingerprint){
+        if(fingerprint==null || fingerprint.isEmpty() || hasFingerprint(fingerprint)) return false;
+        long[] d=dayBounds(ts);
+        Cursor c=getReadableDatabase().rawQuery(
+            "SELECT id FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<0.005 AND ts>=? AND ts<? AND source LIKE 'notificacion:%' AND (fingerprint IS NULL OR fingerprint='') ORDER BY ts LIMIT 1",
+            new String[]{type,currency,String.valueOf(amount),String.valueOf(d[0]),String.valueOf(d[1])});
+        if(!c.moveToFirst()){ c.close(); return false; }
+        long id=c.getLong(0); c.close();
+        ContentValues v=new ContentValues(); v.put("fingerprint",fingerprint);
+        return getWritableDatabase().update("tx",v,"id=? AND (fingerprint IS NULL OR fingerprint='')",new String[]{String.valueOf(id)})==1;
+    }
+
     public long addRecurring(String type,double amount,String currency,String category,String description,int day){
         ContentValues v=new ContentValues(); v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("day",day); v.put("active",1);
         return getWritableDatabase().insert("recurring",null,v);
