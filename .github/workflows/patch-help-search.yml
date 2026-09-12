@@ -1,4 +1,4 @@
-name: Patch blacklist editor
+name: Fix v1.8.26 help separator
 permissions:
   contents: write
 on:
@@ -10,31 +10,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Patch app
+      - name: Fix Java help separator
         shell: python
         run: |
           from pathlib import Path
           p=Path('app/src/main/java/com/pablo/controlgastos/HomeActivity.java')
           s=p.read_text()
-          old='f.addView(cat);f.addView(date);f.addView(tv("Origen: "+sourceLabel(source),13,MUTED));new AlertDialog.Builder(this).setTitle("Editar movimiento")'
-          new='f.addView(cat);f.addView(date);f.addView(tv("Origen: "+sourceLabel(source),13,MUTED));Button blacklist=button("⛔ Enviar a lista negra");blacklist.setOnClickListener(v->showBlacklistFromMovement(id,desc.getText().toString(),source));f.addView(blacklist);new AlertDialog.Builder(this).setTitle("Editar movimiento")'
-          if old not in s: raise SystemExit('edit insertion point not found')
-          s=s.replace(old,new,1)
-          marker=' private void showCategoryPicker(long id,String current)'
-          method=' private void showBlacklistFromMovement(long id,String description,String source){String proposed=description==null?"":description.trim();EditText rule=textEdit("Palabra o frase a bloquear",proposed);LinearLayout f=form();f.addView(tv("Esta regla se aplicará solo a futuras notificaciones. Revisá el texto antes de confirmar para no bloquear compras válidas por error.",14,MUTED));f.addView(rule);new AlertDialog.Builder(this).setTitle("Enviar a lista negra").setView(f).setPositiveButton("Agregar y eliminar",(d,w)->{String r=rule.getText().toString().trim();if(r.isEmpty()){Toast.makeText(this,"Escribí una palabra o frase para bloquear",Toast.LENGTH_LONG).show();return;}ArrayList<String> words=BlacklistRules.load(this);boolean exists=false;String nr=helpNorm(r);for(String x:words)if(helpNorm(x).equals(nr)){exists=true;break;}if(!exists){words.add(0,r);BlacklistRules.save(this,words);}db.deleteTx(id);Toast.makeText(this,exists?"El movimiento fue enviado a la papelera; la regla ya estaba en la lista negra":"Agregado a lista negra y movimiento enviado a la papelera",Toast.LENGTH_LONG).show();refresh();}).setNegativeButton("Cancelar",null).show();}\n'
-          if marker not in s: raise SystemExit('method marker not found')
-          s=s.replace(marker,method+marker,1)
-          h='   "PRIVACIDAD\\nLos movimientos, reglas y presupuestos se guardan localmente. Estas funciones no requieren las credenciales de tu banco."'
-          nh='   "ENVIAR A LISTA NEGRA DESDE UN MOVIMIENTO\\nAl editar un movimiento podés usar ‘⛔ Enviar a lista negra’. La app propone la descripción como regla, pero podés editarla antes de confirmar. Al aceptar, la palabra o frase se agrega a la lista negra para bloquear futuras notificaciones coincidentes y el movimiento actual se envía a la papelera, por lo que todavía puede restaurarse. La lista negra no filtra movimientos reales importados desde Excel eBROU.",\\n'+h
-          if h in s: s=s.replace(h,nh,1)
-          p.write_text(s)
-          g=Path('app/build.gradle')
-          x=g.read_text().replace('versionCode 47','versionCode 48').replace("versionName '1.8.25'","versionName '1.8.26'")
-          g.write_text(x)
-      - name: Commit changes
+          bad='eBROU.",\\n   "PRIVACIDAD'
+          good='eBROU.",'+chr(10)+'   "PRIVACIDAD'
+          if bad not in s: raise SystemExit('separator not found')
+          p.write_text(s.replace(bad,good,1))
+      - name: Commit
         run: |
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add app/src/main/java/com/pablo/controlgastos/HomeActivity.java app/build.gradle
-          git commit -m "Add blacklist action from movement editor v1.8.26"
+          git add app/src/main/java/com/pablo/controlgastos/HomeActivity.java
+          git commit -m "Fix help separator v1.8.26"
           git push
