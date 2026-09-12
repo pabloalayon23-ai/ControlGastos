@@ -1,0 +1,1 @@
+Sprite atlas and background binary files generated externally for app packaging.
