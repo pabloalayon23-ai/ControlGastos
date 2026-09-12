@@ -51,7 +51,8 @@ public class ExpenseDb extends SQLiteOpenHelper {
     }
 
     public boolean existsOriginal(String original){
-        Cursor c=getReadableDatabase().rawQuery("SELECT 1 FROM tx WHERE original_text=? LIMIT 1",new String[]{original});
+        if(original==null||original.trim().isEmpty())return false;
+        Cursor c=getReadableDatabase().rawQuery("SELECT 1 FROM tx WHERE original_text=? OR instr(COALESCE(original_text,''),?)>0 LIMIT 1",new String[]{original,original});
         boolean found=c.moveToFirst(); c.close(); return found;
     }
 
@@ -67,20 +68,33 @@ public class ExpenseDb extends SQLiteOpenHelper {
         try{ while(c.moveToNext()) if(merchantMatches(description,c.getString(0))||isGenericBankDescription(c.getString(0))) return true; return false; }finally{ c.close(); }
     }
 
-    public boolean linkImportedToNotification(String type,double amount,String currency,String category,String description,String original,long ts,String source,String fingerprint){
-        if(fingerprint==null || fingerprint.isEmpty() || hasFingerprint(fingerprint)) return false;
+    private static class NotificationMatch{long id,ts;String description,category,original,source;}
+    private NotificationMatch findNotificationMatch(String type,double amount,String currency,String description,long ts){
         long[] d=duplicateBounds(ts);
         Cursor c=getReadableDatabase().rawQuery("SELECT id,description,category,original_text,ts,source FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND ts>=? AND ts<? AND source LIKE 'notificacion:%' AND (fingerprint IS NULL OR fingerprint='') ORDER BY ABS(ts-?) ASC",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1]),String.valueOf(ts)});
-        long id=-1,oldTs=0;String oldDesc=null,oldCat=null,oldOriginal=null,oldSource=null;
-        try{ while(c.moveToNext()){String candidateDesc=c.getString(1);long candidateTs=c.getLong(4);boolean match=merchantMatches(description,candidateDesc)||(isGenericBankDescription(candidateDesc)&&Math.abs(ts-candidateTs)<=2L*86400000L);if(match){id=c.getLong(0);oldDesc=candidateDesc;oldCat=c.getString(2);oldOriginal=c.getString(3);oldTs=candidateTs;oldSource=c.getString(5);break;}} }finally{ c.close(); }
-        if(id<0) return false;
+        NotificationMatch generic=null,strong=null;int genericCount=0;
+        try{while(c.moveToNext()){
+            NotificationMatch m=new NotificationMatch();m.id=c.getLong(0);m.description=c.getString(1);m.category=c.getString(2);m.original=c.getString(3);m.ts=c.getLong(4);m.source=c.getString(5);
+            if(merchantMatches(description,m.description)){strong=m;break;}
+            if(isGenericBankDescription(m.description)&&Math.abs(ts-m.ts)<=2L*86400000L){genericCount++;if(generic==null)generic=m;}
+        }}finally{c.close();}
+        return strong!=null?strong:(genericCount==1?generic:null);
+    }
+
+    public boolean wouldLinkImportedToNotification(String type,double amount,String currency,String description,long ts){
+        return findNotificationMatch(type,amount,currency,description,ts)!=null;
+    }
+
+    public boolean linkImportedToNotification(String type,double amount,String currency,String category,String description,String original,long ts,String source,String fingerprint){
+        if(fingerprint==null || fingerprint.isEmpty() || hasFingerprint(fingerprint)) return false;
+        NotificationMatch m=findNotificationMatch(type,amount,currency,description,ts);if(m==null)return false;
         ContentValues v=new ContentValues();v.put("fingerprint",fingerprint);
-        if(isRicherDescription(description,oldDesc))v.put("description",description);
-        if(shouldReplaceCategory(oldCat,category))v.put("category",category);
-        if(original!=null&&!original.trim().isEmpty())v.put("original_text",mergeOriginal(oldOriginal,original));
-        if(ts>0&&Math.abs(ts-oldTs)<=DUPLICATE_DAY_TOLERANCE*86400000L)v.put("ts",ts);
-        if(source!=null&&!source.isEmpty())v.put("source","conciliado:"+source+"+"+(oldSource==null?"notificacion":oldSource));
-        return getWritableDatabase().update("tx",v,"id=? AND (fingerprint IS NULL OR fingerprint='')",new String[]{String.valueOf(id)})==1;
+        if(isRicherDescription(description,m.description))v.put("description",description);
+        if(shouldReplaceCategory(m.category,category))v.put("category",category);
+        if(original!=null&&!original.trim().isEmpty())v.put("original_text",mergeOriginal(m.original,original));
+        if(ts>0&&Math.abs(ts-m.ts)<=DUPLICATE_DAY_TOLERANCE*86400000L)v.put("ts",ts);
+        if(source!=null&&!source.isEmpty())v.put("source","conciliado:"+source+"+"+(m.source==null?"notificacion":m.source));
+        return getWritableDatabase().update("tx",v,"id=? AND (fingerprint IS NULL OR fingerprint='')",new String[]{String.valueOf(m.id)})==1;
     }
 
     private static boolean isRicherDescription(String newer,String older){
