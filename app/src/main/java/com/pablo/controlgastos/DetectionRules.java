@@ -77,5 +77,21 @@ public final class DetectionRules {
         for(Object[]x:changes){ContentValues v=new ContentValues();v.put("category",(String)x[1]);db.getWritableDatabase().update("tx",v,"id=?",new String[]{String.valueOf((Long)x[0])});}
     }
 
+    public static void assignMovementCategory(Context c,long id,String newCategory){
+        if(newCategory==null||newCategory.trim().isEmpty())return;String category=newCategory.trim();ExpenseDb db=new ExpenseDb(c);
+        Cursor q=db.getReadableDatabase().rawQuery("SELECT type,description,original_text FROM tx WHERE id=? LIMIT 1",new String[]{String.valueOf(id)});String type="",desc="",original="";
+        if(q.moveToFirst()){type=q.getString(0);desc=q.getString(1)==null?"":q.getString(1);original=q.getString(2)==null?"":q.getString(2);}q.close();
+        ContentValues v=new ContentValues();v.put("category",category);db.getWritableDatabase().update("tx",v,"id=?",new String[]{String.valueOf(id)});
+        if(!"GASTO".equalsIgnoreCase(type))return;
+        String text=(original+" "+desc).trim();ArrayList<Rule> rules=load(c);int best=-1,bestLen=-1;
+        for(int i=0;i<rules.size();i++){Rule r=rules.get(i);String w=norm(r.word);if(w.isEmpty()||isGenericLearningWord(w))continue;if(norm(text).contains(w)&&w.length()>bestLen){best=i;bestLen=w.length();}}
+        ArrayList<String> words=new ArrayList<>(),cats=new ArrayList<>();
+        if(best>=0){for(int i=0;i<rules.size();i++){Rule r=rules.get(i);words.add(r.word);cats.add(i==best?category:r.category);}}
+        else {String kw=suggestLearningWord(desc);if(kw.isEmpty())return;words.add(kw);cats.add(category);for(Rule r:rules){if(!norm(r.word).equals(norm(kw))){words.add(r.word);cats.add(r.category);}}}
+        saveInternal(c,words,cats);reclassifyExisting(c);
+    }
+    private static boolean isGenericLearningWord(String w){return w.equals("transferencia")||w.equals("transf")||w.equals("trf")||w.equals("paganza")||w.equals("pago")||w.equals("compra")||w.equals("comercio")||w.equals("supermercado");}
+    private static String suggestLearningWord(String description){String d=description==null?"":description.trim();d=d.replaceFirst("(?i)^comercio\\s*:\\s*","").trim();String n=norm(d).replaceAll("[^a-z0-9áéíóúñ* ]+"," ").replaceAll("\\s+"," ").trim();if(n.contains("*")){String[] a=n.split("\\*");for(int i=a.length-1;i>=0;i--){String x=a[i].trim();if(x.length()>=3&&!x.equals("merpago"))return x;}}n=n.replaceFirst("^(trf|transf|transferencia)( e brou)?( otros)?\\s+","").trim();if(n.length()>48)n=n.substring(0,48).trim();return n.length()>=3?n:"";}
+
     public static String norm(String s){if(s==null)return"";return Normalizer.normalize(s,Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT).replaceAll("\\s+"," ").trim();}
 }
