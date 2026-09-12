@@ -1,0 +1,94 @@
+name: Patch category drilldown and learning
+permissions:
+  contents: write
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-category-drilldown.yml'
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch category interactions
+        shell: python
+        run: |
+          from pathlib import Path
+
+          # DetectionRules: category assignment that also learns/updates whitelist.
+          p=Path('app/src/main/java/com/pablo/controlgastos/DetectionRules.java')
+          s=p.read_text()
+          marker='    public static String norm(String s){'
+          if marker not in s: raise SystemExit('DetectionRules marker not found')
+          insert=r'''    public static void assignMovementCategory(Context c,long id,String newCategory){
+        if(newCategory==null||newCategory.trim().isEmpty())return;String category=newCategory.trim();ExpenseDb db=new ExpenseDb(c);
+        Cursor q=db.getReadableDatabase().rawQuery("SELECT type,description,original_text FROM tx WHERE id=? LIMIT 1",new String[]{String.valueOf(id)});String type="",desc="",original="";
+        if(q.moveToFirst()){type=q.getString(0);desc=q.getString(1)==null?"":q.getString(1);original=q.getString(2)==null?"":q.getString(2);}q.close();
+        ContentValues v=new ContentValues();v.put("category",category);db.getWritableDatabase().update("tx",v,"id=?",new String[]{String.valueOf(id)});
+        if(!"GASTO".equalsIgnoreCase(type))return;
+        String text=(original+" "+desc).trim();ArrayList<Rule> rules=load(c);int best=-1,bestLen=-1;
+        for(int i=0;i<rules.size();i++){Rule r=rules.get(i);String w=norm(r.word);if(w.isEmpty()||isGenericLearningWord(w))continue;if(norm(text).contains(w)&&w.length()>bestLen){best=i;bestLen=w.length();}}
+        ArrayList<String> words=new ArrayList<>(),cats=new ArrayList<>();
+        if(best>=0){for(int i=0;i<rules.size();i++){Rule r=rules.get(i);words.add(r.word);cats.add(i==best?category:r.category);}}
+        else {String kw=suggestLearningWord(desc);if(kw.isEmpty())return;words.add(kw);cats.add(category);for(Rule r:rules){if(!norm(r.word).equals(norm(kw))){words.add(r.word);cats.add(r.category);}}}
+        saveInternal(c,words,cats);reclassifyExisting(c);
+    }
+    private static boolean isGenericLearningWord(String w){return w.equals("transferencia")||w.equals("transf")||w.equals("trf")||w.equals("paganza")||w.equals("pago")||w.equals("compra")||w.equals("comercio")||w.equals("supermercado");}
+    private static String suggestLearningWord(String description){String d=description==null?"":description.trim();d=d.replaceFirst("(?i)^comercio\\s*:\\s*","").trim();String n=norm(d).replaceAll("[^a-z0-9áéíóúñ* ]+"," ").replaceAll("\\s+"," ").trim();if(n.contains("*")){String[] a=n.split("\\*");for(int i=a.length-1;i>=0;i--){String x=a[i].trim();if(x.length()>=3&&!x.equals("merpago"))return x;}}n=n.replaceFirst("^(trf|transf|transferencia)( e brou)?( otros)?\\s+","").trim();if(n.length()>48)n=n.substring(0,48).trim();return n.length()>=3?n:"";}
+
+'''
+          s=s.replace(marker,insert+marker,1)
+          p.write_text(s)
+
+          # Home: show category under each movement and allow quick category change; edit learns too.
+          p=Path('app/src/main/java/com/pablo/controlgastos/HomeActivity.java')
+          s=p.read_text()
+          old='TextView d=tv(desc==null?"Sin descripción":desc,16,TEXT);row.addView(d,new LinearLayout.LayoutParams(0,-2,1));TextView amt=tv('
+          new='LinearLayout texts=new LinearLayout(this);texts.setOrientation(LinearLayout.VERTICAL);TextView d=tv(desc==null?"Sin descripción":desc,16,TEXT);texts.addView(d);TextView catView=tv("Categoría: "+((cat==null||cat.trim().isEmpty())?"Sin categoría":cat),12,MUTED);texts.addView(catView);row.addView(texts,new LinearLayout.LayoutParams(0,-2,1));TextView amt=tv('
+          if old not in s: raise SystemExit('Home row target not found')
+          s=s.replace(old,new,1)
+          old='row.setOnClickListener(v->showEdit(fid,ft,fa,fc,fcat,fd,fts,fs));row.setOnLongClickListener'
+          new='catView.setOnClickListener(v->showCategoryPicker(fid,fcat));row.setOnClickListener(v->showEdit(fid,ft,fa,fc,fcat,fd,fts,fs));row.setOnLongClickListener'
+          if old not in s: raise SystemExit('Home click target not found')
+          s=s.replace(old,new,1)
+          old='db.updateTx(id,type.getSelectedItem().toString(),parseAmount(amount),cur.getSelectedItem().toString(),cat.getText().toString(),desc.getText().toString(),chosen.getTimeInMillis());refresh();'
+          new='String newCat=cat.getText().toString().trim();db.updateTx(id,type.getSelectedItem().toString(),parseAmount(amount),cur.getSelectedItem().toString(),newCat,desc.getText().toString(),chosen.getTimeInMillis());if(!newCat.equalsIgnoreCase(ccat==null?"":ccat.trim()))DetectionRules.assignMovementCategory(this,id,newCat);refresh();'
+          if old not in s: raise SystemExit('Home edit save target not found')
+          s=s.replace(old,new,1)
+          marker=' private void confirmDelete(long id,String d){'
+          helper=r''' private void showCategoryPicker(long id,String current){ArrayList<String> cats=new ArrayList<>(DetectionRules.categoryNames(this));if(current!=null&&!current.trim().isEmpty()&&!cats.contains(current.trim()))cats.add(0,current.trim());cats.add("＋ Nueva categoría…");String[] arr=cats.toArray(new String[0]);new AlertDialog.Builder(this).setTitle("Cambiar categoría").setItems(arr,(d,w)->{if(w==arr.length-1){EditText e=textEdit("Nueva categoría","");new AlertDialog.Builder(this).setTitle("Nueva categoría").setView(e).setPositiveButton("Guardar",(x,y)->{String nc=e.getText().toString().trim();if(!nc.isEmpty()){DetectionRules.assignMovementCategory(this,id,nc);refresh();}}).setNegativeButton("Cancelar",null).show();}else{DetectionRules.assignMovementCategory(this,id,arr[w]);refresh();}}).setNegativeButton("Cancelar",null).show();}
+'''
+          if marker not in s: raise SystemExit('Home helper marker not found')
+          s=s.replace(marker,helper+marker,1)
+          p.write_text(s)
+
+          # Analytics: category row drills down into movements and each movement can be re-categorized.
+          p=Path('app/src/main/java/com/pablo/controlgastos/AnalyticsActivity.java')
+          s=p.read_text()
+          old='if(cat)r.setOnClickListener(v->startActivity(new Intent(this,CategorySettingsActivity.class)));else r.setOnClickListener(v->showMerchantDetail(i.name));'
+          new='if(cat)r.setOnClickListener(v->showCategoryDetail(i.name));else r.setOnClickListener(v->showMerchantDetail(i.name));'
+          if old not in s: raise SystemExit('Analytics rank target not found')
+          s=s.replace(old,new,1)
+          marker=' private void showMerchantDetail(String merchant){'
+          helper=r''' private void showCategoryDetail(String category){
+  LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(8),dp(4),dp(8),dp(8));ScrollView sc=new ScrollView(this);LinearLayout rows=new LinearLayout(this);rows.setOrientation(LinearLayout.VERTICAL);sc.addView(rows);box.addView(tv("Tocá un movimiento para cambiar su categoría. El cambio también actualiza/aprende la regla correspondiente en la lista blanca.",13,MUTED));box.addView(sc,new LinearLayout.LayoutParams(-1,dp(430)));
+  Calendar a=(Calendar)selected.clone();a.set(Calendar.DAY_OF_MONTH,1);a.set(Calendar.HOUR_OF_DAY,0);a.set(Calendar.MINUTE,0);a.set(Calendar.SECOND,0);a.set(Calendar.MILLISECOND,0);if(annual)a.set(Calendar.MONTH,Calendar.JANUARY);Calendar b=(Calendar)a.clone();b.add(annual?Calendar.YEAR:Calendar.MONTH,1);
+  Cursor c=db.getReadableDatabase().rawQuery("SELECT id,amount,currency,category,description,ts FROM tx WHERE type='GASTO' AND ts>=? AND ts<? ORDER BY ts DESC",new String[]{String.valueOf(a.getTimeInMillis()),String.valueOf(b.getTimeInMillis())});int count=0;SimpleDateFormat df=new SimpleDateFormat("dd/MM",Locale.US);
+  while(c.moveToNext()){long id=c.getLong(0);double amount=c.getDouble(1);String cur=c.getString(2),cat=c.getString(3),desc=c.getString(4);long ts=c.getLong(5);if(!category.equals(categoryKey(cat,desc)))continue;count++;LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);row.setPadding(dp(10),dp(8),dp(10),dp(8));row.setBackground(bg(CARD,10));TextView name=tv((desc==null?"Sin descripción":desc)+"   "+("USD".equals(cur)?"USD ":"$ ")+money.format(amount),14,TEXT);row.addView(name);row.addView(tv(df.format(new Date(ts))+" · Categoría: "+(cat==null?"Otros":cat),12,MUTED));LinearLayout.LayoutParams rp=new LinearLayout.LayoutParams(-1,-2);rp.setMargins(0,0,0,dp(5));rows.addView(row,rp);final long fid=id;final String fcat=cat;row.setOnClickListener(v->showCategoryPicker(fid,fcat,category));}
+  c.close();if(count==0)rows.addView(tv("No hay movimientos en esta categoría.",14,MUTED));AlertDialog dlg=new AlertDialog.Builder(this).setTitle(category).setView(box).setNegativeButton("Cerrar",null).create();dlg.show();
+ }
+ private void showCategoryPicker(long id,String current,String reopenCategory){ArrayList<String> cats=new ArrayList<>(DetectionRules.categoryNames(this));if(current!=null&&!current.trim().isEmpty()&&!cats.contains(current.trim()))cats.add(0,current.trim());cats.add("＋ Nueva categoría…");String[] arr=cats.toArray(new String[0]);new AlertDialog.Builder(this).setTitle("Cambiar categoría").setItems(arr,(d,w)->{if(w==arr.length-1){EditText e=new EditText(this);e.setHint("Nueva categoría");new AlertDialog.Builder(this).setTitle("Nueva categoría").setView(e).setPositiveButton("Guardar",(x,y)->{String nc=e.getText().toString().trim();if(!nc.isEmpty()){DetectionRules.assignMovementCategory(this,id,nc);showCategory();}}).setNegativeButton("Cancelar",null).show();}else{DetectionRules.assignMovementCategory(this,id,arr[w]);showCategory();}}).setNegativeButton("Cancelar",null).show();}
+'''
+          if marker not in s: raise SystemExit('Analytics helper marker not found')
+          s=s.replace(marker,helper+marker,1)
+          p.write_text(s)
+
+          # Bump version
+          g=Path('app/build.gradle');x=g.read_text();x=x.replace('versionCode 41','versionCode 42').replace("versionName '1.8.19'","versionName '1.8.20'");g.write_text(x)
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/pablo/controlgastos/DetectionRules.java app/src/main/java/com/pablo/controlgastos/HomeActivity.java app/src/main/java/com/pablo/controlgastos/AnalyticsActivity.java app/build.gradle
+          git commit -m "Add category drilldown and learn category changes"
+          git push
