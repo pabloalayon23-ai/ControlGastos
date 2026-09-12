@@ -1,0 +1,1 @@
+Binary sprite atlas and forest background are referenced by GameView.
