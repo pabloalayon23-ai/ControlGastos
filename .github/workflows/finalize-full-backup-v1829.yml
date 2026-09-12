@@ -1,0 +1,47 @@
+name: Finalize full backup v1.8.29
+on:
+  push:
+    paths:
+      - '.github/workflows/finalize-full-backup-v1829.yml'
+permissions:
+  contents: write
+jobs:
+  finalize:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch source
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          p=Path('app/src/main/java/com/pablo/controlgastos/MainActivity.java')
+          s=p.read_text()
+          old='private void previewImport(Uri uri){final ProgressDialog p=ProgressDialog.show(this,"Leyendo Excel","Analizando movimientos…",true,false);new Thread(()->{try{BankXlsImporter.Result result=BankXlsImporter.parse(this,uri);int existing=0,reconcilable=0;for(BankXlsImporter.Tx tx:result.rows){if(db.hasFingerprint(tx.fingerprint))existing++;else if(db.wouldLinkImportedToNotification(tx.type,tx.amount,tx.currency,tx.description,tx.ts))reconcilable++;}int ex=existing,rec=reconcilable,newCount=result.rows.size()-existing-reconcilable;runOnUiThread(()->{p.dismiss();new AlertDialog.Builder(this).setTitle("Vista previa").setMessage("Movimientos detectados: "+result.rows.size()+"\\nYa importados: "+ex+"\\nPara conciliar con notificación: "+rec+"\\nNuevos: "+newCount).setPositiveButton("Importar y conciliar",(d,w)->commitImport(result)).setNegativeButton("Cancelar",null).show();});}catch(Exception e){runOnUiThread(()->{p.dismiss();new AlertDialog.Builder(this).setTitle("No pude leer el Excel").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show();});}}).start();}'
+          new='private void previewImport(Uri uri){final ProgressDialog p=ProgressDialog.show(this,"Leyendo Excel","Analizando movimientos y respaldo…",true,false);new Thread(()->{try{BankXlsImporter.Result result=BankXlsImporter.parse(this,uri);BackupXlsManager.Info backup=BackupXlsManager.inspect(this,uri);int existing=0,reconcilable=0;for(BankXlsImporter.Tx tx:result.rows){if(db.hasFingerprint(tx.fingerprint))existing++;else if(db.wouldLinkImportedToNotification(tx.type,tx.amount,tx.currency,tx.description,tx.ts))reconcilable++;}int ex=existing,rec=reconcilable,newCount=result.rows.size()-existing-reconcilable;runOnUiThread(()->{p.dismiss();String extra=backup.isBackup?"\\n\\nRESPALDO COMPLETO DETECTADO\\nCategorías: "+backup.categories+"\\nRecurrentes: "+backup.recurring+"\\nConfiguración: "+backup.prefEntries+" valores\\n\\nAl restaurar, la configuración del archivo reemplaza la actual: crea las categorías del respaldo y elimina las que ya no existen.":"";new AlertDialog.Builder(this).setTitle(backup.isBackup?"Restaurar respaldo ControlGastos":"Vista previa").setMessage("Movimientos detectados: "+result.rows.size()+"\\nYa importados: "+ex+"\\nPara conciliar con notificación: "+rec+"\\nNuevos: "+newCount+extra).setPositiveButton(backup.isBackup?"Restaurar respaldo":"Importar y conciliar",(d,w)->commitImport(result,uri,backup.isBackup)).setNegativeButton("Cancelar",null).show();});}catch(Exception e){runOnUiThread(()->{p.dismiss();new AlertDialog.Builder(this).setTitle("No pude leer el Excel").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show();});}}).start();}'
+          if 'BackupXlsManager.inspect' not in s:
+              if old not in s: raise SystemExit('previewImport original no encontrado')
+              s=s.replace(old,new)
+          old2='private void commitImport(BankXlsImporter.Result r){int a=0,d=0;for(BankXlsImporter.Tx tx:r.rows){if(db.addImportedTx(tx.type,tx.amount,tx.currency,tx.category,tx.description,tx.original,tx.ts,"banco-xls",tx.fingerprint))a++;else d++;}Toast.makeText(this,"Nuevos "+a+" · "+d+" existentes o conciliados",Toast.LENGTH_LONG).show();}'
+          new2='private void commitImport(BankXlsImporter.Result r,Uri uri,boolean restoreBackup){BackupXlsManager.RestoreResult br=null;if(restoreBackup){try{br=BackupXlsManager.restore(this,uri,db);}catch(Exception e){new AlertDialog.Builder(this).setTitle("No se pudo restaurar").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show();return;}}int a=0,d=0;for(BankXlsImporter.Tx tx:r.rows){if(db.addImportedTx(tx.type,tx.amount,tx.currency,tx.category,tx.description,tx.original,tx.ts,"banco-xls",tx.fingerprint))a++;else d++;}String msg="Nuevos "+a+" · "+d+" existentes o conciliados";if(br!=null)msg+="\\nRespaldo restaurado: "+br.categories+" categorías · "+br.recurring+" recurrentes · "+br.prefEntries+" ajustes"+(br.movedToOther>0?" · "+br.movedToOther+" movimientos pasaron a Otros":"");Toast.makeText(this,msg,Toast.LENGTH_LONG).show();if(restoreBackup)recreate();}'
+          if old2 in s:s=s.replace(old2,new2)
+          s=s.replace('ControlGastos_eBROU_','ControlGastos_RESPALDO_')
+          s=s.replace('⬇ Exportar Excel compatible eBROU','⬇ Exportar respaldo completo Excel')
+          s=s.replace('El Excel exporta todo el historial en un formato compatible con el importador eBROU. Mantiene las columnas bancarias y agrega Categoría al final. GASTO se guarda en Débito e INGRESO en Crédito.','El Excel funciona como respaldo completo: guarda movimientos, categorías y colores, lista blanca, lista negra, presupuesto, recurrentes y configuración. Al restaurarlo, esa configuración reemplaza la actual. También mantiene el formato compatible con eBROU.')
+          if 'BackupXlsManager.appendBackup(this,wb,db);wb.write();' not in s:
+              s=s.replace('wb.write();','BackupXlsManager.appendBackup(this,wb,db);wb.write();',1)
+          p.write_text(s)
+          g=Path('app/build.gradle')
+          t=g.read_text()
+          t=re.sub(r'versionCode\s+\d+','versionCode 51',t,1)
+          t=re.sub(r"versionName\s+'[^']+'","versionName '1.8.29'",t,1)
+          g.write_text(t)
+          PY
+      - name: Commit
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/src/main/java/com/pablo/controlgastos/MainActivity.java app/build.gradle
+          git commit -m 'Finalize complete Excel backup restore v1.8.29'
+          git push
