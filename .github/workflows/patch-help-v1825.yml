@@ -1,0 +1,54 @@
+name: Update help v1.8.25
+permissions:
+  contents: write
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-help-v1825.yml'
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Update help and version
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          p=Path('app/src/main/java/com/pablo/controlgastos/HomeActivity.java')
+          s=p.read_text()
+
+          old='''   "CAMBIAR CATEGORÍA Y APRENDIZAJE DE LA LISTA BLANCA\\nCuando cambiás la categoría de un gasto desde Inicio o desde Gráficos, ControlGastos actualiza ese movimiento y además intenta aprender la regla correspondiente en la lista blanca. Si ya existe una palabra específica asociada al comercio o concepto, cambia esa regla a la nueva categoría. Si no existe, crea una regla razonable a partir de la descripción. Después reclasifica movimientos compatibles. Esto evita tener que corregir el mismo comercio una y otra vez.",'''
+          new='''   "CAMBIAR CATEGORÍA, PROPAGACIÓN Y APRENDIZAJE\\nCuando cambiás la categoría de un GASTO desde Inicio o desde Gráficos, ControlGastos actualiza ese movimiento y busca todos los gastos guardados, de cualquier mes, que tengan exactamente el mismo nombre normalizado. A todos ellos les asigna la nueva categoría. La comparación ignora mayúsculas/minúsculas, acentos y espacios extra.\\n\\nAdemás, intenta aprender o actualizar la regla correspondiente en la lista blanca. Si ya existe una palabra específica asociada al comercio o concepto, cambia esa regla a la nueva categoría. Si no existe, crea una regla razonable a partir de la descripción y reclasifica movimientos compatibles. Así una corrección puede arreglar tanto el histórico como movimientos futuros.",'''
+          if old not in s: raise SystemExit('category help target not found')
+          s=s.replace(old,new,1)
+
+          old='''   "INICIO Y CAMBIO DE MES\\nInicio muestra los totales y movimientos del mes seleccionado. Usá ‹ y › para cambiar de mes o tocá el nombre del mes para elegir directamente mes y año. ‘Mes actual’ vuelve rápidamente al período corriente.",'''
+          new='''   "INICIO, CAMBIO DE MES Y FILTRO POR MONTO\\nInicio muestra los totales y movimientos del mes seleccionado. Usá ‹ y › para cambiar de mes o tocá el nombre del mes para elegir directamente mes y año. ‘Mes actual’ vuelve rápidamente al período corriente.\\n\\nEl botón ‘Filtrar’ permite mostrar solamente movimientos con un monto igual o mayor al valor que indiques. Podés aplicarlo a todas las monedas, solo UYU o solo USD. El filtro modifica únicamente la lista visible: los cuadros de Gastos, Ingresos y Saldo siguen mostrando el total completo del mes. ‘Quitar filtro’ vuelve a mostrar todos los movimientos.",'''
+          if old not in s: raise SystemExit('home help target not found')
+          s=s.replace(old,new,1)
+
+          old='''   "15. AGREGAR, EDITAR Y ELIMINAR\\nAgregar permite cargar tipo, monto, moneda, descripción, categoría y fecha. En Inicio, tocá un movimiento para editarlo o mantenelo pulsado para eliminarlo. Si solo querés cambiar la categoría, tocá la línea ‘Categoría’ debajo de la descripción.",'''
+          new='''   "15. AGREGAR, EDITAR, ELIMINAR Y RECUPERAR\\nAgregar permite cargar tipo, monto, moneda, descripción, categoría y fecha. En Inicio, tocá un movimiento para editarlo o mantenelo pulsado para eliminarlo. Si solo querés cambiar la categoría, tocá la línea ‘Categoría’ debajo de la descripción. Los movimientos eliminados pasan a la Papelera, desde donde se pueden restaurar mientras no la vacíes.",'''
+          if old not in s: raise SystemExit('edit help target not found')
+          s=s.replace(old,new,1)
+
+          old='''   "PAPELERA Y DESHACER\\nEn Ajustes → Papelera y deshacer podés restaurar movimientos eliminados. ‘Deshacer último cambio’ recupera el estado anterior de la última edición, cambio de categoría o eliminación. Si deshacés una categoría, también se recupera la lista blanca anterior. Vaciar la papelera elimina definitivamente esos elementos.",'''
+          new='''   "PAPELERA Y DESHACER\\nEn Ajustes → Papelera y deshacer podés restaurar movimientos eliminados. ‘Deshacer último cambio’ recupera el estado anterior de la última edición, cambio de categoría o eliminación. Si deshacés un cambio de categoría, también se recupera la lista blanca anterior. Vaciar la papelera elimina definitivamente esos elementos, por lo que esa acción pide confirmación.",'''
+          if old not in s: raise SystemExit('trash help target not found')
+          s=s.replace(old,new,1)
+
+          p.write_text(s)
+
+          p=Path('app/build.gradle')
+          s=p.read_text().replace('versionCode 46','versionCode 47').replace("versionName '1.8.24'","versionName '1.8.25'")
+          p.write_text(s)
+          PY
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/pablo/controlgastos/HomeActivity.java app/build.gradle
+          git commit -m "Update help for filtering recovery and category propagation"
+          git push
