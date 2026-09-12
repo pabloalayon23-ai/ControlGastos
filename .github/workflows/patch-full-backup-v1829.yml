@@ -1,0 +1,50 @@
+name: Patch full backup v1.8.29
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-full-backup-v1829.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch MainActivity and version
+        shell: python
+        run: |
+          from pathlib import Path
+          import re
+
+          p=Path('app/src/main/java/com/pablo/controlgastos/MainActivity.java')
+          s=p.read_text()
+          if 'BackupXlsManager.inspect' not in s:
+              pattern=r' private void previewImport\(Uri uri\)\{.*?\n private void commitImport\(BankXlsImporter\.Result r\)\{.*?\}\n private void writeExcel\(Uri u\)\{'
+              repl=''' private void previewImport(Uri uri){final ProgressDialog p=ProgressDialog.show(this,"Leyendo Excel","Analizando movimientos y respaldo…",true,false);new Thread(()->{try{BankXlsImporter.Result result=BankXlsImporter.parse(this,uri);BackupXlsManager.Info backup=BackupXlsManager.inspect(this,uri);int existing=0,reconcilable=0;for(BankXlsImporter.Tx tx:result.rows){if(db.hasFingerprint(tx.fingerprint))existing++;else if(db.wouldLinkImportedToNotification(tx.type,tx.amount,tx.currency,tx.description,tx.ts))reconcilable++;}int ex=existing,rec=reconcilable,newCount=result.rows.size()-existing-reconcilable;runOnUiThread(()->{p.dismiss();String extra=backup.isBackup?"\\n\\nRESPALDO COMPLETO DETECTADO\\nCategorías: "+backup.categories+"\\nRecurrentes: "+backup.recurring+"\\nConfiguración: "+backup.prefEntries+" valores\\n\\nAl restaurar, la configuración del archivo reemplaza la actual: crea las categorías del respaldo y elimina de la configuración las que ya no existen.":"";new AlertDialog.Builder(this).setTitle(backup.isBackup?"Restaurar respaldo ControlGastos":"Vista previa").setMessage("Movimientos detectados: "+result.rows.size()+"\\nYa importados: "+ex+"\\nPara conciliar con notificación: "+rec+"\\nNuevos: "+newCount+extra).setPositiveButton(backup.isBackup?"Restaurar respaldo":"Importar y conciliar",(d,w)->commitImport(result,uri,backup.isBackup)).setNegativeButton("Cancelar",null).show();});}catch(Exception e){runOnUiThread(()->{p.dismiss();new AlertDialog.Builder(this).setTitle("No pude leer el Excel").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show();});}}).start();}
+ private void commitImport(BankXlsImporter.Result r,Uri uri,boolean restoreBackup){BackupXlsManager.RestoreResult br=null;if(restoreBackup){try{br=BackupXlsManager.restore(this,uri,db);}catch(Exception e){new AlertDialog.Builder(this).setTitle("No se pudo restaurar").setMessage(e.getMessage()).setPositiveButton("Aceptar",null).show();return;}}int a=0,d=0;for(BankXlsImporter.Tx tx:r.rows){if(db.addImportedTx(tx.type,tx.amount,tx.currency,tx.category,tx.description,tx.original,tx.ts,"banco-xls",tx.fingerprint))a++;else d++;}String msg="Nuevos "+a+" · "+d+" existentes o conciliados";if(br!=null)msg+="\\nRespaldo restaurado: "+br.categories+" categorías · "+br.recurring+" recurrentes · "+br.prefEntries+" ajustes"+(br.movedToOther>0?" · "+br.movedToOther+" movimientos de categorías eliminadas pasaron a Otros":"");Toast.makeText(this,msg,Toast.LENGTH_LONG).show();if(restoreBackup)recreate();}
+ private void writeExcel(Uri u){'''
+              ns,n=re.subn(pattern,repl,s,flags=re.S)
+              if n!=1:
+                  raise SystemExit(f'No se pudo parchear preview/commit: {n}')
+              s=ns
+              s=s.replace('ControlGastos_eBROU_','ControlGastos_RESPALDO_')
+              old='El Excel exporta todo el historial en un formato compatible con el importador eBROU. Mantiene las columnas bancarias y agrega Categoría al final. GASTO se guarda en Débito e INGRESO en Crédito.'
+              new='El Excel funciona como respaldo completo: guarda movimientos, categorías y colores, lista blanca, lista negra, presupuesto, recurrentes y configuración de apariencia/seguridad. Al restaurarlo, esa configuración reemplaza la actual. También mantiene el formato compatible con eBROU.'
+              s=s.replace(old,new)
+              if 'BackupXlsManager.appendBackup(this,wb,db);wb.write();' not in s:
+                  s=s.replace('wb.write();','BackupXlsManager.appendBackup(this,wb,db);wb.write();',1)
+              p.write_text(s)
+
+          g=Path('app/build.gradle')
+          t=g.read_text()
+          t=re.sub(r'versionCode\s+\d+','versionCode 51',t,1)
+          t=re.sub(r"versionName\s+'[^']+'","versionName '1.8.29'",t,1)
+          g.write_text(t)
+      - name: Commit patch
+        run: |
+          if git diff --quiet; then exit 0; fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add app/src/main/java/com/pablo/controlgastos/MainActivity.java app/build.gradle
+          git commit -m 'Add complete Excel backup restore v1.8.29'
+          git push
