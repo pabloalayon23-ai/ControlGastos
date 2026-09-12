@@ -1,0 +1,35 @@
+name: Finalize salary month rule
+permissions:
+  contents: write
+on:
+  push:
+    paths:
+      - '.github/workflows/finalize-salary-rule.yml'
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Finalize rule
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('app/src/main/java/com/pablo/controlgastos/ExpenseDb.java')
+          s=p.read_text()
+          s=s.replace('public ExpenseDb(Context c){ super(c,DB,null,3); context=c.getApplicationContext(); }','public ExpenseDb(Context c){ super(c,DB,null,3); context=c.getApplicationContext(); reapplySalaryMonthRule(); }')
+          old='''        if(ts>0&&Math.abs(ts-m.ts)<=DUPLICATE_DAY_TOLERANCE*86400000L)v.put("ts",ts);'''
+          new='''        if(ts>0&&Math.abs(ts-m.ts)<=DUPLICATE_DAY_TOLERANCE*86400000L){long originalTs=ts;v.put("original_ts",originalTs);v.put("ts",effectiveTs(type,description,originalTs));}'''
+          if old not in s: raise SystemExit('link timestamp target not found')
+          s=s.replace(old,new)
+          p.write_text(s)
+          g=Path('app/build.gradle')
+          x=g.read_text().replace('versionCode 40','versionCode 41').replace("versionName '1.8.18'","versionName '1.8.19'")
+          g.write_text(x)
+          PY
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/pablo/controlgastos/ExpenseDb.java app/build.gradle
+          git commit -m "Apply salary month rule automatically and preserve original dates"
+          git push
