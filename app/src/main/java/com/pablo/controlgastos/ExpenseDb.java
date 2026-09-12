@@ -12,12 +12,18 @@ public class ExpenseDb extends SQLiteOpenHelper {
     private static final int DUPLICATE_DAY_TOLERANCE=4;
     private static final double DUPLICATE_AMOUNT_TOLERANCE=0.01d;
 
-    public ExpenseDb(Context c){ super(c,DB,null,3); context=c.getApplicationContext(); reapplySalaryMonthRule(); }
+    public ExpenseDb(Context c){ super(c,DB,null,4); context=c.getApplicationContext(); reapplySalaryMonthRule(); }
 
     @Override public void onCreate(SQLiteDatabase db){
         db.execSQL("CREATE TABLE tx(id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, amount REAL NOT NULL, currency TEXT NOT NULL, category TEXT, description TEXT, original_text TEXT, ts INTEGER NOT NULL, source TEXT NOT NULL, fingerprint TEXT, original_ts INTEGER)");
         db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_fingerprint ON tx(fingerprint) WHERE fingerprint IS NOT NULL AND fingerprint<>''");
         db.execSQL("CREATE TABLE recurring(id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, amount REAL NOT NULL, currency TEXT NOT NULL, category TEXT, description TEXT, day INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1, last_ym TEXT)");
+        createRecoveryTables(db);
+    }
+
+    private void createRecoveryTables(SQLiteDatabase db){
+        db.execSQL("CREATE TABLE IF NOT EXISTS trash(id INTEGER PRIMARY KEY AUTOINCREMENT, original_id INTEGER, type TEXT, amount REAL, currency TEXT, category TEXT, description TEXT, original_text TEXT, ts INTEGER, source TEXT, fingerprint TEXT, original_ts INTEGER, deleted_at INTEGER)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS tx_history(id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT, tx_id INTEGER, type TEXT, amount REAL, currency TEXT, category TEXT, description TEXT, original_text TEXT, ts INTEGER, source TEXT, fingerprint TEXT, original_ts INTEGER, rules_snapshot TEXT, created_at INTEGER, undone INTEGER NOT NULL DEFAULT 0)");
     }
 
     @Override public void onUpgrade(SQLiteDatabase db,int oldVersion,int newVersion){
@@ -29,6 +35,7 @@ public class ExpenseDb extends SQLiteOpenHelper {
             try{ db.execSQL("ALTER TABLE tx ADD COLUMN original_ts INTEGER"); }catch(Exception ignored){}
             try{ db.execSQL("UPDATE tx SET original_ts=ts WHERE original_ts IS NULL OR original_ts=0"); }catch(Exception ignored){}
         }
+        if(oldVersion<4)createRecoveryTables(db);
     }
 
     public static boolean salaryMonthShiftEnabled(Context c){return c.getSharedPreferences("behavior",Context.MODE_PRIVATE).getBoolean("salary_next_month",true);}
@@ -44,6 +51,7 @@ public class ExpenseDb extends SQLiteOpenHelper {
     }
 
     public boolean updateTx(long id,String type,double amount,String currency,String category,String description,long ts){
+        recordTxHistory(id,"EDIT",DetectionRules.rulesSnapshot(context));
         ContentValues v=new ContentValues();
         long originalTs=ts;ts=effectiveTs(type,description,originalTs);
         v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("ts",ts); v.put("original_ts",originalTs);
@@ -156,6 +164,19 @@ public class ExpenseDb extends SQLiteOpenHelper {
     public Cursor monthTx(){ Calendar a=Calendar.getInstance();a.set(Calendar.DAY_OF_MONTH,1);a.set(Calendar.HOUR_OF_DAY,0);a.set(Calendar.MINUTE,0);a.set(Calendar.SECOND,0);a.set(Calendar.MILLISECOND,0);Calendar b=(Calendar)a.clone();b.add(Calendar.MONTH,1);return getReadableDatabase().rawQuery("SELECT id,type,amount,currency,category,description,original_text,ts,source FROM tx WHERE ts>=? AND ts<? ORDER BY ts DESC",new String[]{String.valueOf(a.getTimeInMillis()),String.valueOf(b.getTimeInMillis())}); }
     public Cursor allTx(){ return getReadableDatabase().rawQuery("SELECT id,type,amount,currency,category,description,original_text,ts,source,fingerprint FROM tx ORDER BY ts ASC,id ASC",null); }
     public Cursor allRecurring(){ return getReadableDatabase().rawQuery("SELECT id,type,amount,currency,category,description,day,active FROM recurring ORDER BY type DESC,description",null); }
-    public void deleteTx(long id){ getWritableDatabase().delete("tx","id=?",new String[]{String.valueOf(id)}); }
+    public void recordTxHistory(long id,String action,String rulesSnapshot){
+        Cursor c=getReadableDatabase().rawQuery("SELECT id,type,amount,currency,category,description,original_text,ts,source,fingerprint,COALESCE(original_ts,ts) FROM tx WHERE id=? LIMIT 1",new String[]{String.valueOf(id)});
+        try{if(!c.moveToFirst())return;ContentValues v=new ContentValues();v.put("action",action);v.put("tx_id",c.getLong(0));v.put("type",c.getString(1));v.put("amount",c.getDouble(2));v.put("currency",c.getString(3));v.put("category",c.getString(4));v.put("description",c.getString(5));v.put("original_text",c.getString(6));v.put("ts",c.getLong(7));v.put("source",c.getString(8));v.put("fingerprint",c.getString(9));v.put("original_ts",c.getLong(10));v.put("rules_snapshot",rulesSnapshot==null?"":rulesSnapshot);v.put("created_at",System.currentTimeMillis());getWritableDatabase().insert("tx_history",null,v);}finally{c.close();}
+    }
+    public void updateCategoryWithHistory(long id,String category,String rulesSnapshot){recordTxHistory(id,"CATEGORY",rulesSnapshot);ContentValues v=new ContentValues();v.put("category",category);getWritableDatabase().update("tx",v,"id=?",new String[]{String.valueOf(id)});}
+    public void deleteTx(long id){
+        SQLiteDatabase db=getWritableDatabase();Cursor c=db.rawQuery("SELECT id,type,amount,currency,category,description,original_text,ts,source,fingerprint,COALESCE(original_ts,ts) FROM tx WHERE id=? LIMIT 1",new String[]{String.valueOf(id)});
+        try{if(!c.moveToFirst())return;recordTxHistory(id,"DELETE",DetectionRules.rulesSnapshot(context));ContentValues v=new ContentValues();v.put("original_id",c.getLong(0));v.put("type",c.getString(1));v.put("amount",c.getDouble(2));v.put("currency",c.getString(3));v.put("category",c.getString(4));v.put("description",c.getString(5));v.put("original_text",c.getString(6));v.put("ts",c.getLong(7));v.put("source",c.getString(8));v.put("fingerprint",c.getString(9));v.put("original_ts",c.getLong(10));v.put("deleted_at",System.currentTimeMillis());db.insert("trash",null,v);db.delete("tx","id=?",new String[]{String.valueOf(id)});}finally{c.close();}
+    }
+    public Cursor trashItems(){return getReadableDatabase().rawQuery("SELECT id,original_id,type,amount,currency,category,description,ts,deleted_at FROM trash ORDER BY deleted_at DESC",null);}
+    public boolean restoreTrash(long trashId){SQLiteDatabase db=getWritableDatabase();Cursor c=db.rawQuery("SELECT original_id,type,amount,currency,category,description,original_text,ts,source,fingerprint,original_ts FROM trash WHERE id=? LIMIT 1",new String[]{String.valueOf(trashId)});try{if(!c.moveToFirst())return false;ContentValues v=new ContentValues();v.put("id",c.getLong(0));v.put("type",c.getString(1));v.put("amount",c.getDouble(2));v.put("currency",c.getString(3));v.put("category",c.getString(4));v.put("description",c.getString(5));v.put("original_text",c.getString(6));v.put("ts",c.getLong(7));v.put("source",c.getString(8));v.put("fingerprint",c.getString(9));v.put("original_ts",c.getLong(10));long r=db.insertWithOnConflict("tx",null,v,SQLiteDatabase.CONFLICT_ABORT);if(r!=-1){db.delete("trash","id=?",new String[]{String.valueOf(trashId)});return true;}return false;}catch(Exception e){return false;}finally{c.close();}}
+    public void emptyTrash(){getWritableDatabase().delete("trash",null,null);}
+    public boolean canUndo(){Cursor c=getReadableDatabase().rawQuery("SELECT 1 FROM tx_history WHERE undone=0 ORDER BY id DESC LIMIT 1",null);boolean ok=c.moveToFirst();c.close();return ok;}
+    public String undoLastChange(){SQLiteDatabase db=getWritableDatabase();Cursor c=db.rawQuery("SELECT id,action,tx_id,type,amount,currency,category,description,original_text,ts,source,fingerprint,original_ts,rules_snapshot FROM tx_history WHERE undone=0 ORDER BY id DESC LIMIT 1",null);try{if(!c.moveToFirst())return"No hay cambios para deshacer";long hid=c.getLong(0),txid=c.getLong(2);String action=c.getString(1),rules=c.getString(13);boolean ok=false;if("DELETE".equals(action)){Cursor t=db.rawQuery("SELECT id FROM trash WHERE original_id=? ORDER BY id DESC LIMIT 1",new String[]{String.valueOf(txid)});try{if(t.moveToFirst())ok=restoreTrash(t.getLong(0));}finally{t.close();}}else{ContentValues v=new ContentValues();v.put("type",c.getString(3));v.put("amount",c.getDouble(4));v.put("currency",c.getString(5));v.put("category",c.getString(6));v.put("description",c.getString(7));v.put("original_text",c.getString(8));v.put("ts",c.getLong(9));v.put("source",c.getString(10));v.put("fingerprint",c.getString(11));v.put("original_ts",c.getLong(12));ok=db.update("tx",v,"id=?",new String[]{String.valueOf(txid)})==1;}if(ok){ContentValues u=new ContentValues();u.put("undone",1);db.update("tx_history",u,"id=?",new String[]{String.valueOf(hid)});if(rules!=null&&!rules.isEmpty())DetectionRules.restoreRulesSnapshot(context,rules);return"Cambio deshecho";}return"No se pudo deshacer el cambio";}finally{c.close();}}
     public void deleteRecurring(long id){ getWritableDatabase().delete("recurring","id=?",new String[]{String.valueOf(id)}); }
 }
