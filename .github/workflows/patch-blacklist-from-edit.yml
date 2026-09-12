@@ -1,11 +1,10 @@
 name: Add blacklist from movement editor
-on:
-  push:
-    paths: ['.trigger-blacklist-v1826', '.github/workflows/patch-blacklist-from-edit.yml']
+on: push
 permissions:
   contents: write
 jobs:
   patch:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
