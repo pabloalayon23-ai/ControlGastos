@@ -1,0 +1,49 @@
+name: Patch salary month rule
+permissions:
+  contents: write
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-salary-month-rule.yml'
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply salary month rule
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('app/src/main/java/com/pablo/controlgastos/ExpenseDb.java')
+          s=p.read_text()
+          s=s.replace('public class ExpenseDb extends SQLiteOpenHelper {\n    public static final String DB="gastos.db";', 'public class ExpenseDb extends SQLiteOpenHelper {\n    public static final String DB="gastos.db";\n    private final Context context;')
+          s=s.replace('public ExpenseDb(Context c){ super(c,DB,null,2); }', 'public ExpenseDb(Context c){ super(c,DB,null,3); context=c.getApplicationContext(); }')
+          s=s.replace('source TEXT NOT NULL, fingerprint TEXT)', 'source TEXT NOT NULL, fingerprint TEXT, original_ts INTEGER)')
+          old='''        if(oldVersion<2){\n            try{ db.execSQL("ALTER TABLE tx ADD COLUMN fingerprint TEXT"); }catch(Exception ignored){}\n            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_fingerprint ON tx(fingerprint) WHERE fingerprint IS NOT NULL AND fingerprint<>''");\n        }'''
+          new='''        if(oldVersion<2){\n            try{ db.execSQL("ALTER TABLE tx ADD COLUMN fingerprint TEXT"); }catch(Exception ignored){}\n            db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_fingerprint ON tx(fingerprint) WHERE fingerprint IS NOT NULL AND fingerprint<>''");\n        }\n        if(oldVersion<3){\n            try{ db.execSQL("ALTER TABLE tx ADD COLUMN original_ts INTEGER"); }catch(Exception ignored){}\n            try{ db.execSQL("UPDATE tx SET original_ts=ts WHERE original_ts IS NULL OR original_ts=0"); }catch(Exception ignored){}\n        }'''
+          s=s.replace(old,new)
+          marker='''    public long addTx(String type,double amount,String currency,String category,String description,String original,long ts,String source){\n        ContentValues v=new ContentValues(); v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("original_text",original); v.put("ts",ts); v.put("source",source);\n        return getWritableDatabase().insert("tx",null,v);\n    }'''
+          repl='''    public static boolean salaryMonthShiftEnabled(Context c){return c.getSharedPreferences("behavior",Context.MODE_PRIVATE).getBoolean("salary_next_month",true);}\n    public static void setSalaryMonthShiftEnabled(Context c,boolean enabled){c.getSharedPreferences("behavior",Context.MODE_PRIVATE).edit().putBoolean("salary_next_month",enabled).apply();}\n    private static boolean isSalary(String type,String description){if(!"INGRESO".equalsIgnoreCase(type)||description==null)return false;String n=java.text.Normalizer.normalize(description,java.text.Normalizer.Form.NFD).replaceAll("\\\\p{M}","").toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+"," ").trim();return n.contains("pago de salarios")||n.contains("pago de salario")||n.equals("salarios")||n.equals("salario");}\n    private long effectiveTs(String type,String description,long originalTs){if(!salaryMonthShiftEnabled(context)||!isSalary(type,description))return originalTs;Calendar c=Calendar.getInstance();c.setTimeInMillis(originalTs);if(c.get(Calendar.DAY_OF_MONTH)<25)return originalTs;c.add(Calendar.MONTH,1);c.set(Calendar.DAY_OF_MONTH,1);c.set(Calendar.HOUR_OF_DAY,12);c.set(Calendar.MINUTE,0);c.set(Calendar.SECOND,0);c.set(Calendar.MILLISECOND,0);return c.getTimeInMillis();}\n    public void reapplySalaryMonthRule(){SQLiteDatabase db=getWritableDatabase();Cursor c=db.rawQuery("SELECT id,type,description,COALESCE(original_ts,ts) FROM tx",null);try{while(c.moveToNext()){long id=c.getLong(0),orig=c.getLong(3);ContentValues v=new ContentValues();v.put("original_ts",orig);v.put("ts",effectiveTs(c.getString(1),c.getString(2),orig));db.update("tx",v,"id=?",new String[]{String.valueOf(id)});}}finally{c.close();}}\n\n    public long addTx(String type,double amount,String currency,String category,String description,String original,long ts,String source){\n        long originalTs=ts;ts=effectiveTs(type,description,originalTs);\n        ContentValues v=new ContentValues(); v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("original_text",original); v.put("ts",ts); v.put("original_ts",originalTs); v.put("source",source);\n        return getWritableDatabase().insert("tx",null,v);\n    }'''
+          s=s.replace(marker,repl)
+          s=s.replace('v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("ts",ts);', 'long originalTs=ts;ts=effectiveTs(type,description,originalTs);\n        v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("ts",ts); v.put("original_ts",originalTs);',1)
+          oldimp='''        ContentValues v=new ContentValues(); v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("original_text",original); v.put("ts",ts); v.put("source",source); v.put("fingerprint",fingerprint);'''
+          newimp='''        long originalTs=ts;ts=effectiveTs(type,description,originalTs);\n        ContentValues v=new ContentValues(); v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("original_text",original); v.put("ts",ts); v.put("original_ts",originalTs); v.put("source",source); v.put("fingerprint",fingerprint);'''
+          s=s.replace(oldimp,newimp)
+          p.write_text(s)
+
+          m=Path('app/src/main/java/com/pablo/controlgastos/MainActivity.java')
+          x=m.read_text()
+          old='''Switch shots=new Switch(this);shots.setText("Bloquear capturas y vista en recientes");shots.setChecked(securityPrefs().getBoolean("block_screenshots",false));f.addView(light);f.addView(bio);f.addView(shots);new AlertDialog.Builder(this).setTitle("Apariencia y seguridad").setView(f).setPositiveButton("Guardar",(d,w)->{boolean themeChanged=ThemePrefs.isLight(this)!=light.isChecked();ThemePrefs.setLight(this,light.isChecked());securityPrefs().edit().putBoolean("biometric_lock",bio.isChecked()).putBoolean("block_screenshots",shots.isChecked()).apply();Toast.makeText(this,"Configuración guardada",Toast.LENGTH_SHORT).show();if(themeChanged)recreate();}).setNegativeButton("Cancelar",null).show();}'''
+          new='''Switch shots=new Switch(this);shots.setText("Bloquear capturas y vista en recientes");shots.setChecked(securityPrefs().getBoolean("block_screenshots",false));Switch salary=new Switch(this);salary.setText("Pasar salario cobrado del 25 al 31 al día 1 del mes siguiente");salary.setChecked(ExpenseDb.salaryMonthShiftEnabled(this));f.addView(light);f.addView(bio);f.addView(shots);f.addView(salary);new AlertDialog.Builder(this).setTitle("Apariencia y seguridad").setView(f).setPositiveButton("Guardar",(d,w)->{boolean themeChanged=ThemePrefs.isLight(this)!=light.isChecked();ThemePrefs.setLight(this,light.isChecked());securityPrefs().edit().putBoolean("biometric_lock",bio.isChecked()).putBoolean("block_screenshots",shots.isChecked()).apply();ExpenseDb.setSalaryMonthShiftEnabled(this,salary.isChecked());db.reapplySalaryMonthRule();Toast.makeText(this,"Configuración guardada",Toast.LENGTH_SHORT).show();if(themeChanged)recreate();}).setNegativeButton("Cancelar",null).show();}'''
+          if old not in x: raise SystemExit('MainActivity target not found')
+          x=x.replace(old,new)
+          m.write_text(x)
+
+          g=Path('app/build.gradle');z=g.read_text().replace('versionCode 39','versionCode 40').replace("versionName '1.8.17'","versionName '1.8.18'");g.write_text(z)
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/pablo/controlgastos/ExpenseDb.java app/src/main/java/com/pablo/controlgastos/MainActivity.java app/build.gradle
+          git commit -m "Add configurable salary month assignment rule"
+          git push
