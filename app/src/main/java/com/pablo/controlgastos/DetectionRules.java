@@ -15,14 +15,21 @@ public final class DetectionRules {
     }
 
     private static final String[][] DEFAULTS={
-        {"farmacia","Salud"},{"san roque","Salud"},{"farmashop","Salud"},
-        {"disco","Supermercado"},{"devoto","Supermercado"},{"geant","Supermercado"},{"tata","Supermercado"},{"tienda inglesa","Supermercado"},{"supermercado","Supermercado"},
-        {"ancap","Combustible"},{"combustible","Combustible"},{"nafta","Combustible"},{"gasoil","Combustible"},{"estacion de servicio","Combustible"},
+        {"disco","Disco"},
+        {"devoto","Supermercado"},{"geant","Supermercado"},{"tata","Supermercado"},{"tienda inglesa","Supermercado"},{"supermercado","Supermercado"},
+        {"panaderia","Comida"},{"restaurante","Comida"},{"restaurant","Comida"},{"delivery","Comida"},{"pedidosya","Comida"},{"pedidos ya","Comida"},
+        {"ancap","Transporte"},{"axion","Transporte"},{"combustible","Transporte"},{"nafta","Transporte"},{"gasoil","Transporte"},{"estacion de servicio","Transporte"},{"telepeaje","Transporte"},{"peaje","Transporte"},
         {"ute","Servicios"},{"ose","Servicios"},{"antel","Servicios"},{"movistar","Servicios"},{"claro","Servicios"},{"internet","Servicios"},
-        {"restaurante","Comida"},{"restaurant","Comida"},{"delivery","Comida"},{"pedidosya","Comida"},{"pedidos ya","Comida"},
-        {"transferencia","Transferencias"},{"transf","Transferencias"},{"paganza","Pagos"},
-        {"colegio","Educación"},{"escuela","Educación"},{"universidad","Educación"},
-        {"seguro","Seguros"},{"bse","Seguros"},{"patente","Impuestos"},{"sucive","Impuestos"},{"intendencia","Impuestos"},{"contribucion","Impuestos"}
+        {"farmacia","Salud"},{"san roque","Salud"},{"farmashop","Salud"},{"martinelli","Salud"},
+        {"google","Tecnología y suscripciones"},{"claude","Tecnología y suscripciones"},{"netflix","Tecnología y suscripciones"},{"spotify","Tecnología y suscripciones"},{"icloud","Tecnología y suscripciones"},
+        {"colegio","Educación"},{"escuela","Educación"},{"universidad","Educación"},{"graduacion","Educación"},
+        {"taekwondo","Familia e hijos"},{"dia del niño","Familia e hijos"},
+        {"regalo","Regalos y eventos"},{"cumple","Regalos y eventos"},
+        {"ferreteria","Hogar"},{"sodimac","Hogar"},{"electrodomestico","Hogar"},
+        {"ropa","Ropa y compras personales"},{"calzado","Ropa y compras personales"},
+        {"seguro","Seguros e impuestos"},{"bse","Seguros e impuestos"},{"patente","Seguros e impuestos"},{"sucive","Seguros e impuestos"},{"intendencia","Seguros e impuestos"},{"contribucion","Seguros e impuestos"},
+        {"pago de tc","Pago de tarjeta"},{"pago tc","Pago de tarjeta"},{"pago tarjeta","Pago de tarjeta"},{"pago de tarjeta","Pago de tarjeta"},
+        {"transferencia","Transferencias"},{"transf","Transferencias"},{"trf","Transferencias"},{"paganza","Pagos"}
     };
 
     private static void ensure(Context c){
@@ -64,7 +71,7 @@ public final class DetectionRules {
         ExpenseDb db=new ExpenseDb(c);Cursor q=db.getReadableDatabase().rawQuery("SELECT id,description,original_text,source,type FROM tx",null);ArrayList<Object[]>changes=new ArrayList<>();
         while(q.moveToNext()){
             String source=q.getString(3),type=q.getString(4);if(!"GASTO".equals(type))continue;
-            if(!(source!=null&&(source.startsWith("notificacion:")||source.equals("banco-xls"))))continue;
+            if(!(source!=null&&(source.startsWith("notificacion:")||source.startsWith("banco-xls")||source.startsWith("conciliado:"))))continue;
             String text=(q.getString(2)==null?"":q.getString(2))+"\n"+(q.getString(1)==null?"":q.getString(1));String cat=categoryFor(c,text,"Otros");changes.add(new Object[]{q.getLong(0),cat});
         }q.close();
         for(Object[]x:changes){ContentValues v=new ContentValues();v.put("category",(String)x[1]);db.getWritableDatabase().update("tx",v,"id=?",new String[]{String.valueOf((Long)x[0])});}
