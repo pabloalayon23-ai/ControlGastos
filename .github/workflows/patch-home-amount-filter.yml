@@ -1,0 +1,66 @@
+name: Patch home amount filter
+permissions:
+  contents: write
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-home-amount-filter.yml'
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch Home amount filter
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('app/src/main/java/com/pablo/controlgastos/HomeActivity.java')
+          s=p.read_text()
+
+          old='private static final int REQ_DEVICE_CREDENTIAL=7001;private ExpenseDb db;private LinearLayout list;private TextView gastos,ingresos,saldo,month;private boolean unlocked=false,authInProgress=false;private final DecimalFormat money=new DecimalFormat("#,##0.00");private final Calendar selectedMonth=Calendar.getInstance();private int BG,CARD,TEXT,MUTED,YELLOW,NAV;'
+          new='private static final int REQ_DEVICE_CREDENTIAL=7001;private ExpenseDb db;private LinearLayout list;private TextView gastos,ingresos,saldo,month;private Button movementFilterBtn;private boolean unlocked=false,authInProgress=false;private double minMovementFilter=0;private String movementCurrencyFilter="TODAS";private final DecimalFormat money=new DecimalFormat("#,##0.00");private final Calendar selectedMonth=Calendar.getInstance();private int BG,CARD,TEXT,MUTED,YELLOW,NAV;'
+          if old not in s: raise SystemExit('field target not found')
+          s=s.replace(old,new,1)
+
+          old='TextView mov=tv("Movimientos",20,TEXT);mov.setTypeface(Typeface.DEFAULT,Typeface.BOLD);outer.addView(mov);ScrollView sc=new ScrollView(this);'
+          new='LinearLayout movRow=new LinearLayout(this);movRow.setGravity(Gravity.CENTER_VERTICAL);TextView mov=tv("Movimientos",20,TEXT);mov.setTypeface(Typeface.DEFAULT,Typeface.BOLD);movRow.addView(mov,new LinearLayout.LayoutParams(0,-2,1));movementFilterBtn=button("Filtrar");movementFilterBtn.setTextSize(12);movementFilterBtn.setOnClickListener(v->showMovementFilter());movRow.addView(movementFilterBtn,new LinearLayout.LayoutParams(dp(118),dp(40)));outer.addView(movRow);ScrollView sc=new ScrollView(this);'
+          if old not in s: raise SystemExit('movement header target not found')
+          s=s.replace(old,new,1)
+
+          old='private void refresh(){db.materializeRecurring();list.removeAllViews();String mt='
+          new='private void refresh(){db.materializeRecurring();list.removeAllViews();updateMovementFilterLabel();String mt='
+          if old not in s: raise SystemExit('refresh target not found')
+          s=s.replace(old,new,1)
+
+          old='for(Object[]r:rows){long id=(Long)r[0],ts=(Long)r[6];String dk=dkf.format(new Date(ts));'
+          new='int visibleRows=0;for(Object[]r:rows){String filterCur=(String)r[3];double filterAmount=(Double)r[2];if(filterAmount<minMovementFilter)continue;if(!"TODAS".equals(movementCurrencyFilter)&&!movementCurrencyFilter.equals(filterCur))continue;visibleRows++;long id=(Long)r[0],ts=(Long)r[6];String dk=dkf.format(new Date(ts));'
+          if old not in s: raise SystemExit('rows loop target not found')
+          s=s.replace(old,new,1)
+
+          old='if(rows.isEmpty()){TextView e=tv("No hay movimientos en "+new SimpleDateFormat("MMMM yyyy",new Locale("es","UY")).format(selectedMonth.getTime())+".",15,MUTED);e.setGravity(Gravity.CENTER);list.addView(e);}}'
+          new='if(rows.isEmpty()){TextView e=tv("No hay movimientos en "+new SimpleDateFormat("MMMM yyyy",new Locale("es","UY")).format(selectedMonth.getTime())+".",15,MUTED);e.setGravity(Gravity.CENTER);list.addView(e);}else if(visibleRows==0){TextView e=tv("No hay movimientos que cumplan el filtro actual.",15,MUTED);e.setGravity(Gravity.CENTER);list.addView(e);}}'
+          if old not in s: raise SystemExit('empty rows target not found')
+          s=s.replace(old,new,1)
+
+          marker=' private void showMonthYearPicker(){'
+          helper=r''' private void updateMovementFilterLabel(){if(movementFilterBtn==null)return;if(minMovementFilter<=0&&"TODAS".equals(movementCurrencyFilter)){movementFilterBtn.setText("Filtrar");return;}String cur="TODAS".equals(movementCurrencyFilter)?"":movementCurrencyFilter+" ";movementFilterBtn.setText("≥ "+cur+money.format(minMovementFilter));}
+ private void showMovementFilter(){LinearLayout f=form();EditText amount=amountEdit(minMovementFilter);amount.setHint("Monto mínimo");String[] currencies={"Todas las monedas","UYU","USD"};Spinner cur=new Spinner(this);cur.setAdapter(new ArrayAdapter<>(this,android.R.layout.simple_spinner_dropdown_item,currencies));cur.setSelection("UYU".equals(movementCurrencyFilter)?1:"USD".equals(movementCurrencyFilter)?2:0);f.addView(tv("Mostrar movimientos con monto igual o mayor a:",14,MUTED));f.addView(amount);f.addView(tv("Moneda",14,MUTED));f.addView(cur);new AlertDialog.Builder(this).setTitle("Filtrar movimientos").setView(f).setPositiveButton("Aplicar",(d,w)->{try{String raw=amount.getText().toString().trim();minMovementFilter=raw.isEmpty()?0:Double.parseDouble(raw.replace(".","").replace(',','.'));if(minMovementFilter<0)minMovementFilter=0;movementCurrencyFilter=cur.getSelectedItemPosition()==1?"UYU":cur.getSelectedItemPosition()==2?"USD":"TODAS";refresh();}catch(Exception e){Toast.makeText(this,"Revisá el monto del filtro",Toast.LENGTH_LONG).show();}}).setNeutralButton("Quitar filtro",(d,w)->{minMovementFilter=0;movementCurrencyFilter="TODAS";refresh();}).setNegativeButton("Cancelar",null).show();}
+'''
+          if marker not in s: raise SystemExit('filter helper marker not found')
+          s=s.replace(marker,helper+marker,1)
+
+          # Add help text if current searchable help contains the movements section.
+          needle='"13. AGREGAR, EDITAR Y ELIMINAR\\nAgregar permite cargar tipo, monto, moneda, descripción, categoría y fecha. En Inicio, cada movimiento muestra también su categoría. Podés tocar la categoría para cambiarla rápidamente; tocar el resto del movimiento abre la edición completa y mantener pulsado permite eliminarlo. Si cambiás la categoría, ControlGastos intenta actualizar o aprender la regla correspondiente para la lista blanca.",'
+          repl=needle+'\n   "14. FILTRAR MOVIMIENTOS POR MONTO\\nEn Inicio, junto a Movimientos, tocá Filtrar para mostrar solamente importes iguales o mayores al monto que elijas. Podés aplicarlo a todas las monedas o solo a UYU/USD. El filtro afecta únicamente la lista visible: los totales de Gastos, Ingresos y Saldo siguen mostrando el mes completo. Usá Quitar filtro para volver a ver todo.",'
+          if needle in s:
+              s=s.replace(needle,repl,1)
+          p.write_text(s)
+
+          g=Path('app/build.gradle');x=g.read_text().replace('versionCode 43','versionCode 44').replace("versionName '1.8.21'","versionName '1.8.22'");g.write_text(x)
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/pablo/controlgastos/HomeActivity.java app/build.gradle
+          git commit -m "Add amount filter to home movements"
+          git push
