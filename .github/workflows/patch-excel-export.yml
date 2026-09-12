@@ -1,0 +1,89 @@
+name: Patch Excel export import
+permissions:
+  contents: write
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-excel-export.yml'
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Apply Excel compatibility changes
+        shell: python
+        run: |
+          from pathlib import Path
+
+          p=Path('app/src/main/java/com/pablo/controlgastos/MainActivity.java')
+          s=p.read_text()
+          s=s.replace('Button appearance=btn("⚙ Apariencia y seguridad"),exp=btn("⬇ Exportar CSV completo"),add=btn("＋ Agregar movimiento manual");',
+                      'Button appearance=btn("⚙ Apariencia y seguridad"),exp=btn("⬇ Exportar Excel compatible eBROU"),add=btn("＋ Agregar movimiento manual");')
+          s=s.replace('root.addView(tv("El CSV exporta todo el historial guardado, sin limitarse al mes visible: todos los meses y años, con fecha, tipo, moneda, monto, categoría, descripción, origen, texto original y huella de conciliación.",13,MUTED));',
+                      'root.addView(tv("El Excel exporta todo el historial en un formato compatible con el importador eBROU. Mantiene las columnas bancarias y agrega Categoría al final. GASTO se guarda en Débito e INGRESO en Crédito.",13,MUTED));')
+          s=s.replace('exp.setOnClickListener(v->exportCsv());','exp.setOnClickListener(v->exportExcel());')
+          old='private void pickBankFile(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("application/vnd.ms-excel");i.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/vnd.ms-excel","application/octet-stream","*/*"});startActivityForResult(i,REQ_IMPORT);}private void exportCsv(){Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("text/csv");i.putExtra(Intent.EXTRA_TITLE,"ControlGastos_historial_completo_"+new SimpleDateFormat("yyyyMMdd",Locale.US).format(new Date())+".csv");startActivityForResult(i,REQ_EXPORT);}'
+          new='private void pickBankFile(){Intent i=new Intent(Intent.ACTION_OPEN_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("application/vnd.ms-excel");i.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/vnd.ms-excel","application/octet-stream","*/*"});startActivityForResult(i,REQ_IMPORT);}private void exportExcel(){Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT);i.addCategory(Intent.CATEGORY_OPENABLE);i.setType("application/vnd.ms-excel");i.putExtra(Intent.EXTRA_TITLE,"ControlGastos_eBROU_"+new SimpleDateFormat("yyyyMMdd",Locale.US).format(new Date())+".xls");startActivityForResult(i,REQ_EXPORT);}'
+          if old not in s: raise SystemExit('export method pattern not found')
+          s=s.replace(old,new)
+          s=s.replace('if(r==REQ_EXPORT)writeCsv(data.getData());else if(r==REQ_IMPORT)previewImport(data.getData());','if(r==REQ_EXPORT)writeExcel(data.getData());else if(r==REQ_IMPORT)previewImport(data.getData());')
+          a=s.index(' private void writeCsv(Uri u){')
+          b=s.index('private boolean notificationEnabled()',a)
+          excel=r''' private void writeExcel(Uri u){
+  OutputStream os=null;jxl.write.WritableWorkbook wb=null;
+  try{
+   os=getContentResolver().openOutputStream(u);if(os==null)throw new IOException("No se pudo crear el archivo");wb=jxl.Workbook.createWorkbook(os);
+   String[] headers={"Fecha","Descripción","Número de documento","Asunto","Dependencia","Débito","Crédito","Categoría"};
+   jxl.write.DateFormat dfmt=new jxl.write.DateFormat("dd/MM/yyyy");jxl.write.WritableCellFormat dateFmt=new jxl.write.WritableCellFormat(dfmt);
+   jxl.write.NumberFormat nfmt=new jxl.write.NumberFormat("#,##0.00");jxl.write.WritableCellFormat numFmt=new jxl.write.WritableCellFormat(nfmt);
+   jxl.write.WritableSheet uyu=wb.createSheet("UYU",0),usd=wb.createSheet("USD",1);jxl.write.WritableSheet[] sheets={uyu,usd};
+   for(jxl.write.WritableSheet sh:sheets){for(int c=0;c<headers.length;c++)sh.addCell(new jxl.write.Label(c,0,headers[c]));sh.setColumnView(0,14);sh.setColumnView(1,34);sh.setColumnView(2,36);sh.setColumnView(3,34);sh.setColumnView(4,20);sh.setColumnView(5,16);sh.setColumnView(6,16);sh.setColumnView(7,24);}
+   int rUyu=1,rUsd=1,n=0;Cursor c=db.allTx();while(c.moveToNext()){
+    String currency=c.getString(3)==null?"UYU":c.getString(3).toUpperCase(Locale.ROOT);jxl.write.WritableSheet sh="USD".equals(currency)?usd:uyu;int r="USD".equals(currency)?rUsd++:rUyu++;
+    String type=c.getString(1),desc=c.getString(5),cat=c.getString(4),source=c.getString(8),original=c.getString(6),fingerprint=c.getString(9);
+    sh.addCell(new jxl.write.DateTime(0,r,new Date(c.getLong(7)),dateFmt));sh.addCell(new jxl.write.Label(1,r,desc==null?"":desc));
+    sh.addCell(new jxl.write.Label(2,r,(fingerprint==null||fingerprint.trim().isEmpty())?"":"CG:"+fingerprint.trim()));
+    sh.addCell(new jxl.write.Label(3,r,original==null?"":original));sh.addCell(new jxl.write.Label(4,r,source==null?"ControlGastos":source));
+    double amount=c.getDouble(2);if("INGRESO".equalsIgnoreCase(type))sh.addCell(new jxl.write.Number(6,r,amount,numFmt));else sh.addCell(new jxl.write.Number(5,r,amount,numFmt));
+    sh.addCell(new jxl.write.Label(7,r,cat==null?"":cat));n++;
+   }c.close();wb.write();wb.close();wb=null;os.close();os=null;Toast.makeText(this,"Excel exportado: "+n+" movimientos",Toast.LENGTH_LONG).show();
+  }catch(Exception e){try{if(wb!=null)wb.close();}catch(Exception ignored){}try{if(os!=null)os.close();}catch(Exception ignored){}Toast.makeText(this,"No se pudo exportar el Excel",Toast.LENGTH_LONG).show();}
+ }
+ '''
+          s=s[:a]+excel+s[b:]
+          p.write_text(s)
+
+          p=Path('app/src/main/java/com/pablo/controlgastos/BankXlsImporter.java')
+          s=p.read_text()
+          old='String desc=transferDescription(rawDesc,hm.subject>=0&&hm.subject<cells.length?cells[hm.subject]:"");String currency=findCurrency(cells,sh.getName());addTx(context,out,occ,date,ai,currency,desc,original);'
+          new='String desc=transferDescription(rawDesc,hm.subject>=0&&hm.subject<cells.length?cells[hm.subject]:"");String currency=findCurrency(cells,sh.getName());String importedCategory=hm.category>=0&&hm.category<cells.length?cells[hm.category]:"";String importedFingerprint=controlGastosFingerprint(hm.document>=0&&hm.document<cells.length?cells[hm.document]:"");addTx(context,out,occ,date,ai,currency,desc,original,importedCategory,importedFingerprint);'
+          if old not in s: raise SystemExit('main importer call pattern not found')
+          s=s.replace(old,new)
+          old='int subjectCol=findColumn(sh,header,"asunto");int invalid=0;boolean started=false;'
+          new='int subjectCol=findColumn(sh,header,"asunto"),categoryCol=findColumn(sh,header,"categoria"),documentCol=findColumn(sh,header,"numero de documento");int invalid=0;boolean started=false;'
+          if old not in s: raise SystemExit('fallback cols pattern not found')
+          s=s.replace(old,new)
+          old='String currency=findCurrency(cells,sh.getName());addTx(context,out,occ,date,ai,currency,desc,original);}}'
+          new='String currency=findCurrency(cells,sh.getName());String importedCategory=categoryCol>=0&&categoryCol<cells.length?cells[categoryCol]:"";String importedFingerprint=controlGastosFingerprint(documentCol>=0&&documentCol<cells.length?cells[documentCol]:"");addTx(context,out,occ,date,ai,currency,desc,original,importedCategory,importedFingerprint);}}'
+          if old not in s: raise SystemExit('fallback importer call pattern not found')
+          s=s.replace(old,new)
+          old='private static void addTx(Context context,Result out,Map<String,Integer> occ,Date date,AmountInfo ai,String currency,String desc,String original){String category=DetectionRules.categoryFor(context,original,classify(desc));String day=new SimpleDateFormat("yyyy-MM-dd",Locale.US).format(date);String canonical=day+"|"+ai.type+"|"+currency+"|"+String.format(Locale.US,"%.2f",ai.amount)+"|"+norm(desc)+"|"+norm(original);int n=occ.containsKey(canonical)?occ.get(canonical)+1:1;occ.put(canonical,n);Tx tx=new Tx();tx.type=ai.type;tx.amount=ai.amount;tx.currency=currency;tx.category=category;tx.description=desc.isEmpty()?"Movimiento bancario":desc;tx.original=original;tx.ts=atNoon(date).getTime();tx.fingerprint=sha256("bank-xls|"+canonical+"|occ="+n);out.rows.add(tx);}'
+          new='private static void addTx(Context context,Result out,Map<String,Integer> occ,Date date,AmountInfo ai,String currency,String desc,String original,String importedCategory,String importedFingerprint){String category=clean(importedCategory);if(category.isEmpty())category=DetectionRules.categoryFor(context,original,classify(desc));String day=new SimpleDateFormat("yyyy-MM-dd",Locale.US).format(date);String canonical=day+"|"+ai.type+"|"+currency+"|"+String.format(Locale.US,"%.2f",ai.amount)+"|"+norm(desc)+"|"+norm(original);int n=occ.containsKey(canonical)?occ.get(canonical)+1:1;occ.put(canonical,n);Tx tx=new Tx();tx.type=ai.type;tx.amount=ai.amount;tx.currency=currency;tx.category=category;tx.description=desc.isEmpty()?"Movimiento bancario":desc;tx.original=original;tx.ts=atNoon(date).getTime();tx.fingerprint=(importedFingerprint!=null&&!importedFingerprint.isEmpty())?importedFingerprint:sha256("bank-xls|"+canonical+"|occ="+n);out.rows.add(tx);}private static String controlGastosFingerprint(String document){String d=clean(document);if(d.regionMatches(true,0,"CG:",0,3)){String f=d.substring(3).trim();if(f.matches("(?i)[0-9a-f]{64}"))return f.toLowerCase(Locale.ROOT);}return"";}'
+          if old not in s: raise SystemExit('addTx pattern not found')
+          s=s.replace(old,new)
+          s=s.replace('private static class HeaderMap{int date=-1,desc=-1,subject=-1,debit=-1,credit=-1,amount=-1;}',
+                      'private static class HeaderMap{int date=-1,desc=-1,subject=-1,debit=-1,credit=-1,amount=-1,category=-1,document=-1;}')
+          old='if(h.amount<0&&hasAny(s,"importe","monto","amount"))h.amount=c;}return h;}'
+          new='if(h.amount<0&&hasAny(s,"importe","monto","amount"))h.amount=c;if(h.category<0&&s.contains("categoria"))h.category=c;if(h.document<0&&s.contains("numero de documento"))h.document=c;}return h;}'
+          if old not in s: raise SystemExit('header map build pattern not found')
+          s=s.replace(old,new)
+          p.write_text(s)
+
+          p=Path('app/build.gradle');s=p.read_text().replace('versionCode 38','versionCode 39').replace("versionName '1.8.16'","versionName '1.8.17'");p.write_text(s)
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/pablo/controlgastos/MainActivity.java app/src/main/java/com/pablo/controlgastos/BankXlsImporter.java app/build.gradle
+          git commit -m "Export eBROU-compatible Excel and preserve categories on import"
+          git push
