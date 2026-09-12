@@ -79,20 +79,22 @@ public class ExpenseDb extends SQLiteOpenHelper {
     }
 
     private long[] duplicateBounds(long ts){
-        Calendar a=Calendar.getInstance(); a.setTimeInMillis(ts); a.set(Calendar.HOUR_OF_DAY,0); a.set(Calendar.MINUTE,0); a.set(Calendar.SECOND,0); a.set(Calendar.MILLISECOND,0); a.add(Calendar.DAY_OF_MONTH,-DUPLICATE_DAY_TOLERANCE);
-        Calendar b=Calendar.getInstance(); b.setTimeInMillis(ts); b.set(Calendar.HOUR_OF_DAY,0); b.set(Calendar.MINUTE,0); b.set(Calendar.SECOND,0); b.set(Calendar.MILLISECOND,0); b.add(Calendar.DAY_OF_MONTH,DUPLICATE_DAY_TOLERANCE+1);
+        // Conciliación Excel/notificación: misma fecha calendario exacta.
+        // Se usa original_ts cuando existe para no confundir la fecha contable ajustada (p. ej. salarios).
+        Calendar a=Calendar.getInstance(); a.setTimeInMillis(ts); a.set(Calendar.HOUR_OF_DAY,0); a.set(Calendar.MINUTE,0); a.set(Calendar.SECOND,0); a.set(Calendar.MILLISECOND,0);
+        Calendar b=(Calendar)a.clone(); b.add(Calendar.DAY_OF_MONTH,1);
         return new long[]{a.getTimeInMillis(),b.getTimeInMillis()};
     }
 
     public boolean hasImportedDuplicate(String type,double amount,String currency,String description,long ts){
         long[] d=duplicateBounds(ts);
-        Cursor c=getReadableDatabase().rawQuery("SELECT description,ts FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND ts>=? AND ts<? AND (source LIKE 'banco-xls%' OR source LIKE 'conciliado:%') ORDER BY ABS(ts-?) ASC",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1]),String.valueOf(ts)});
+        Cursor c=getReadableDatabase().rawQuery("SELECT description,COALESCE(original_ts,ts) FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND COALESCE(original_ts,ts)>=? AND COALESCE(original_ts,ts)<? AND (source LIKE 'banco-xls%' OR source LIKE 'conciliado:%') ORDER BY ABS(COALESCE(original_ts,ts)-?) ASC",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1]),String.valueOf(ts)});
         int genericNearCount=0;
         try{
             while(c.moveToNext()){
                 String existing=c.getString(0);long existingTs=c.getLong(1);
                 if(merchantMatches(description,existing))return true;
-                if(isGenericBankDescription(existing)&&Math.abs(ts-existingTs)<=2L*86400000L)genericNearCount++;
+                if(isGenericBankDescription(existing))genericNearCount++;
             }
             return genericNearCount==1;
         }finally{c.close();}
@@ -101,12 +103,12 @@ public class ExpenseDb extends SQLiteOpenHelper {
     private static class NotificationMatch{long id,ts;String description,category,original,source;}
     private NotificationMatch findNotificationMatch(String type,double amount,String currency,String description,long ts){
         long[] d=duplicateBounds(ts);
-        Cursor c=getReadableDatabase().rawQuery("SELECT id,description,category,original_text,ts,source FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND ts>=? AND ts<? AND source LIKE 'notificacion:%' AND (fingerprint IS NULL OR fingerprint='') ORDER BY ABS(ts-?) ASC",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1]),String.valueOf(ts)});
+        Cursor c=getReadableDatabase().rawQuery("SELECT id,description,category,original_text,COALESCE(original_ts,ts),source FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND COALESCE(original_ts,ts)>=? AND COALESCE(original_ts,ts)<? AND source LIKE 'notificacion:%' AND (fingerprint IS NULL OR fingerprint='') ORDER BY ABS(COALESCE(original_ts,ts)-?) ASC",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1]),String.valueOf(ts)});
         NotificationMatch generic=null,strong=null;int genericCount=0;
         try{while(c.moveToNext()){
             NotificationMatch m=new NotificationMatch();m.id=c.getLong(0);m.description=c.getString(1);m.category=c.getString(2);m.original=c.getString(3);m.ts=c.getLong(4);m.source=c.getString(5);
             if(merchantMatches(description,m.description)){strong=m;break;}
-            if(isGenericBankDescription(m.description)&&Math.abs(ts-m.ts)<=2L*86400000L){genericCount++;if(generic==null)generic=m;}
+            if(isGenericBankDescription(m.description)){genericCount++;if(generic==null)generic=m;}
         }}finally{c.close();}
         return strong!=null?strong:(genericCount==1?generic:null);
     }
