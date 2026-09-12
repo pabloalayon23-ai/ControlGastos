@@ -63,8 +63,8 @@ public class ExpenseDb extends SQLiteOpenHelper {
 
     public boolean hasImportedDuplicate(String type,double amount,String currency,String description,long ts){
         long[] d=duplicateBounds(ts);
-        Cursor c=getReadableDatabase().rawQuery("SELECT description FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND ts>=? AND ts<? AND source LIKE 'banco-xls%'",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1])});
-        try{ while(c.moveToNext()) if(merchantMatches(description,c.getString(0))) return true; return false; }finally{ c.close(); }
+        Cursor c=getReadableDatabase().rawQuery("SELECT description FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND ts>=? AND ts<? AND (source LIKE 'banco-xls%' OR source LIKE 'conciliado:%')",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1])});
+        try{ while(c.moveToNext()) if(merchantMatches(description,c.getString(0))||isGenericBankDescription(c.getString(0))) return true; return false; }finally{ c.close(); }
     }
 
     public boolean linkImportedToNotification(String type,double amount,String currency,String category,String description,String original,long ts,String source,String fingerprint){
@@ -72,7 +72,7 @@ public class ExpenseDb extends SQLiteOpenHelper {
         long[] d=duplicateBounds(ts);
         Cursor c=getReadableDatabase().rawQuery("SELECT id,description,category,original_text,ts,source FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND ts>=? AND ts<? AND source LIKE 'notificacion:%' AND (fingerprint IS NULL OR fingerprint='') ORDER BY ABS(ts-?) ASC",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1]),String.valueOf(ts)});
         long id=-1,oldTs=0;String oldDesc=null,oldCat=null,oldOriginal=null,oldSource=null;
-        try{ while(c.moveToNext()){ if(merchantMatches(description,c.getString(1))){ id=c.getLong(0);oldDesc=c.getString(1);oldCat=c.getString(2);oldOriginal=c.getString(3);oldTs=c.getLong(4);oldSource=c.getString(5);break; } } }finally{ c.close(); }
+        try{ while(c.moveToNext()){String candidateDesc=c.getString(1);long candidateTs=c.getLong(4);boolean match=merchantMatches(description,candidateDesc)||(isGenericBankDescription(candidateDesc)&&Math.abs(ts-candidateTs)<=2L*86400000L);if(match){id=c.getLong(0);oldDesc=candidateDesc;oldCat=c.getString(2);oldOriginal=c.getString(3);oldTs=candidateTs;oldSource=c.getString(5);break;}} }finally{ c.close(); }
         if(id<0) return false;
         ContentValues v=new ContentValues();v.put("fingerprint",fingerprint);
         if(isRicherDescription(description,oldDesc))v.put("description",description);
@@ -86,9 +86,9 @@ public class ExpenseDb extends SQLiteOpenHelper {
     private static boolean isRicherDescription(String newer,String older){
         String n=newer==null?"":newer.trim(),o=older==null?"":older.trim();if(n.isEmpty())return false;if(o.isEmpty())return true;
         String ok=merchantKey(o),nk=merchantKey(n);if(nk.isEmpty())return false;
-        boolean oldGeneric=ok.equals("transferencia")||ok.equals("notificacion bancaria")||ok.equals("compra visa")||ok.length()<5;
-        return oldGeneric||n.length()>o.length()+3||nk.contains(ok);
+        return isGenericBankDescription(o)||n.length()>o.length()+3||(!ok.isEmpty()&&nk.contains(ok));
     }
+    private static boolean isGenericBankDescription(String s){if(s==null)return true;String n=java.text.Normalizer.normalize(s,java.text.Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+"," ").trim();return n.isEmpty()||n.equals("transferencia")||n.equals("transf")||n.equals("trf")||n.equals("notificacion bancaria")||n.equals("compra visa brou")||n.equals("movimiento bancario");}
     private static boolean shouldReplaceCategory(String oldCat,String newCat){
         if(newCat==null||newCat.trim().isEmpty())return false;if(oldCat==null||oldCat.trim().isEmpty())return true;
         String o=oldCat.trim().toLowerCase(Locale.ROOT);return o.equals("sin categoría")||o.equals("sin categoria")||o.equals("otros")||o.equals("banco")||o.equals("transferencias");
