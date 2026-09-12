@@ -21,20 +21,16 @@ jobs:
           if old not in s: raise SystemExit('edit insertion point not found')
           s=s.replace(old,new,1)
           marker=' private void showCategoryPicker(long id,String current)'
-          method=''' private void showBlacklistFromMovement(long id,String description,String source){
-  String proposed=description==null?"":description.trim();
-  EditText rule=textEdit("Palabra o frase a bloquear",proposed);
-  LinearLayout f=form();f.addView(tv("Esta regla se aplicará solo a futuras notificaciones. Revisá el texto antes de confirmar para no bloquear compras válidas por error.",14,MUTED));f.addView(rule);
-  new AlertDialog.Builder(this).setTitle("Enviar a lista negra").setView(f).setPositiveButton("Agregar y eliminar",(d,w)->{String r=rule.getText().toString().trim();if(r.isEmpty()){Toast.makeText(this,"Escribí una palabra o frase para bloquear",Toast.LENGTH_LONG).show();return;}ArrayList<String> words=BlacklistRules.load(this);boolean exists=false;String nr=helpNorm(r);for(String x:words)if(helpNorm(x).equals(nr)){exists=true;break;}if(!exists){words.add(0,r);BlacklistRules.save(this,words);}db.deleteTx(id);Toast.makeText(this,exists?"El movimiento fue enviado a la papelera; la regla ya estaba en la lista negra":"Agregado a lista negra y movimiento enviado a la papelera",Toast.LENGTH_LONG).show();refresh();}).setNegativeButton("Cancelar",null).show();
- }
-'''
+          method=' private void showBlacklistFromMovement(long id,String description,String source){String proposed=description==null?"":description.trim();EditText rule=textEdit("Palabra o frase a bloquear",proposed);LinearLayout f=form();f.addView(tv("Esta regla se aplicará solo a futuras notificaciones. Revisá el texto antes de confirmar para no bloquear compras válidas por error.",14,MUTED));f.addView(rule);new AlertDialog.Builder(this).setTitle("Enviar a lista negra").setView(f).setPositiveButton("Agregar y eliminar",(d,w)->{String r=rule.getText().toString().trim();if(r.isEmpty()){Toast.makeText(this,"Escribí una palabra o frase para bloquear",Toast.LENGTH_LONG).show();return;}ArrayList<String> words=BlacklistRules.load(this);boolean exists=false;String nr=helpNorm(r);for(String x:words)if(helpNorm(x).equals(nr)){exists=true;break;}if(!exists){words.add(0,r);BlacklistRules.save(this,words);}db.deleteTx(id);Toast.makeText(this,exists?"El movimiento fue enviado a la papelera; la regla ya estaba en la lista negra":"Agregado a lista negra y movimiento enviado a la papelera",Toast.LENGTH_LONG).show();refresh();}).setNegativeButton("Cancelar",null).show();}\n'
           if marker not in s: raise SystemExit('method marker not found')
           s=s.replace(marker,method+marker,1)
           h='   "PRIVACIDAD\\nLos movimientos, reglas y presupuestos se guardan localmente. Estas funciones no requieren las credenciales de tu banco."'
           nh='   "ENVIAR A LISTA NEGRA DESDE UN MOVIMIENTO\\nAl editar un movimiento podés usar ‘⛔ Enviar a lista negra’. La app propone la descripción como regla, pero podés editarla antes de confirmar. Al aceptar, la palabra o frase se agrega a la lista negra para bloquear futuras notificaciones coincidentes y el movimiento actual se envía a la papelera, por lo que todavía puede restaurarse. La lista negra no filtra movimientos reales importados desde Excel eBROU.",\\n'+h
           if h in s: s=s.replace(h,nh,1)
           p.write_text(s)
-          g=Path('app/build.gradle');x=g.read_text().replace('versionCode 47','versionCode 48').replace("versionName '1.8.25'","versionName '1.8.26'");g.write_text(x)
+          g=Path('app/build.gradle')
+          x=g.read_text().replace('versionCode 47','versionCode 48').replace("versionName '1.8.25'","versionName '1.8.26'")
+          g.write_text(x)
       - name: Commit changes
         run: |
           git config user.name github-actions[bot]
