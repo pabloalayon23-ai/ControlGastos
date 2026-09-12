@@ -1,0 +1,1 @@
+emanuel_atlas.png: 4x2 grid, 256px cells. order: idle, run1, run2, jump, kick, pony, mounted, enemy.
