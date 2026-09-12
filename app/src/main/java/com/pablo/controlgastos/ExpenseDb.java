@@ -64,8 +64,16 @@ public class ExpenseDb extends SQLiteOpenHelper {
 
     public boolean hasImportedDuplicate(String type,double amount,String currency,String description,long ts){
         long[] d=duplicateBounds(ts);
-        Cursor c=getReadableDatabase().rawQuery("SELECT description FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND ts>=? AND ts<? AND (source LIKE 'banco-xls%' OR source LIKE 'conciliado:%')",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1])});
-        try{ while(c.moveToNext()) if(merchantMatches(description,c.getString(0))||isGenericBankDescription(c.getString(0))) return true; return false; }finally{ c.close(); }
+        Cursor c=getReadableDatabase().rawQuery("SELECT description,ts FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND ts>=? AND ts<? AND (source LIKE 'banco-xls%' OR source LIKE 'conciliado:%') ORDER BY ABS(ts-?) ASC",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1]),String.valueOf(ts)});
+        int genericNearCount=0;
+        try{
+            while(c.moveToNext()){
+                String existing=c.getString(0);long existingTs=c.getLong(1);
+                if(merchantMatches(description,existing))return true;
+                if(isGenericBankDescription(existing)&&Math.abs(ts-existingTs)<=2L*86400000L)genericNearCount++;
+            }
+            return genericNearCount==1;
+        }finally{c.close();}
     }
 
     private static class NotificationMatch{long id,ts;String description,category,original,source;}
