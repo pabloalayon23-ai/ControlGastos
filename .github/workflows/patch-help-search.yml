@@ -1,4 +1,4 @@
-name: Patch searchable help
+name: Patch blacklist editor
 permissions:
   contents: write
 on:
@@ -10,58 +10,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Patch help and bump version
+      - name: Patch app
         shell: python
         run: |
           from pathlib import Path
           p=Path('app/src/main/java/com/pablo/controlgastos/HomeActivity.java')
           s=p.read_text()
-          start=s.index(' private void showHelp(){')
-          end=s.index(' private boolean notificationEnabled()', start)
-          method=r''' private String helpNorm(String s){if(s==null)return"";String n=java.text.Normalizer.normalize(s,java.text.Normalizer.Form.NFD).replaceAll("\\p{M}","");return n.toLowerCase(new Locale("es","UY"));}
- private void showHelp(){
-  final String[] sections={
-   "GUÍA PARA EMPEZAR\nControlGastos reúne gastos e ingresos en un solo lugar. Podés cargarlos manualmente, detectarlos desde notificaciones compatibles o importar el Excel original de eBROU. No necesitás ingresar usuario ni contraseña bancaria.",
-   "INICIO Y CAMBIO DE MES\nInicio muestra los totales y movimientos del mes seleccionado. Usá ‹ y › para cambiar de mes o tocá el nombre del mes para elegir directamente mes y año. ‘Mes actual’ vuelve rápidamente al período corriente.",
-   "BARRA INFERIOR\nTenés Inicio, Gráficos, Agregar, Presupuesto y Ajustes. La importación, reglas, recurrentes, exportación y seguridad están dentro de Ajustes.",
-   "1. ACCESO A NOTIFICACIONES\nPara detección automática habilitá el acceso a notificaciones. En APK instaladas fuera de Play Store, Android puede exigir primero habilitar las configuraciones restringidas desde Información de la aplicación.",
-   "2. COMPRAS, TRANSFERENCIAS E INGRESOS\nControlGastos intenta distinguir GASTOS de INGRESOS. Compras, pagos, débitos, consumos y transferencias enviadas se registran como gastos. Transferencias recibidas, acreditaciones, depósitos, devoluciones, reintegros y reembolsos pueden registrarse como ingresos cuando la notificación contiene datos suficientes.\n\nEn notificaciones con varias cifras, la app prioriza Importe, Monto, Total, Débito, Crédito o Valor. Para transferencias busca beneficiario, destinatario, titular, asunto, concepto, referencia, ordenante, remitente, cuenta u origen.",
-   "3. COMPRAS BROU ESTRUCTURADAS\nUna compra BROU claramente aprobada, con datos como Importe, Aprobado y Comercio/Compra, tiene prioridad frente a filtros genéricos de la lista negra. Las rechazadas o anuladas siguen descartándose.",
-   "4. LEER NOTIFICACIONES ACTIVAS\nEn Ajustes → Banco e importación, ‘Leer notificaciones activas’ vuelve a procesar las notificaciones que todavía estén visibles. No recupera notificaciones que Android ya eliminó del panel.",
-   "5. IMPORTAR ARCHIVO EBROU\nPodés seleccionar directamente el .xls original de eBROU. La vista previa diferencia movimientos ya importados, conciliables con una notificación existente y realmente nuevos. En transferencias reconoce TRF., TRF, TRANSF y Transferencia. Si existe Asunto, se usa para obtener una descripción más informativa.",
-   "6. FECHA EFECTIVA EN CIERRE DE MES\nEn algunas transferencias de los últimos tres días del mes, si el número de documento codifica claramente una fecha de 1 a 3 días posterior en el mes siguiente, ControlGastos usa esa fecha efectiva. La regla se aplica de forma conservadora solo a transferencias de fin de mes.",
-   "7. CONCILIACIÓN NOTIFICACIÓN + EXCEL\nSi primero entró una notificación y después importás el Excel, la app intenta reconocer el mismo movimiento mediante tipo, moneda, importe, descripción/comercio y proximidad de fecha. Si coincide, no duplica: enriquece la fila existente con información del Excel y conserva trazabilidad.",
-   "8. LISTA BLANCA, CATEGORÍAS Y COLORES\nLa lista blanca relaciona palabras o frases con categorías. Podés agregar o eliminar reglas, crear categorías, cambiar colores y renombrarlas. DISCO puede mantenerse como categoría propia, separada de Supermercado.",
-   "9. SUGERIR SEGÚN MI HISTÓRICO\nEn Lista blanca · palabras y categorías, ‘✨ Sugerir según mi histórico’ analiza descripciones y texto original de los movimientos guardados. Propone reglas basadas en coincidencias reales y muestra cuántas encontró. No borra tus reglas ni agrega sugerencias automáticamente: vos elegís cuáles incorporar. Sirve especialmente para reducir la categoría Otros.",
-   "10. PAGO DE TARJETA\nMovimientos como PAGO DE TC, PAGO TC, PAGO TARJETA o PAGO DE TARJETA se pueden clasificar como ‘Pago de tarjeta’. eBROU normalmente no informa en ese movimiento qué compras componen el pago, por lo que la app no inventa un desglose. Como decidimos mantenerlo, Pago de tarjeta sigue contando como GASTO. Si además registraste individualmente las compras de esa tarjeta, puede existir doble conteo.",
-   "11. LISTA NEGRA\nLa lista negra filtra notificaciones con palabras como rechazado, pendiente o recordatorio. No filtra movimientos reales del Excel. Las compras BROU fuertemente estructuradas y aprobadas están protegidas frente a falsos positivos genéricos.",
-   "12. MOVIMIENTOS RECURRENTES\nPodés crear gastos o ingresos mensuales indicando un día del 1 al 31. Si el mes tiene menos días, se usa su último día válido. Si pasás varios meses sin abrir la app, recupera los meses recurrentes pendientes sin generar dos veces el mismo período.",
-   "13. AGREGAR, EDITAR Y ELIMINAR\nAgregar permite cargar tipo, monto, moneda, descripción, categoría y fecha. En Inicio, tocá un movimiento para editarlo o mantenelo pulsado para eliminarlo.",
-   "14. GRÁFICOS\nGráficos permite analizar Categorías, Comercios, Evolución y Comparar períodos. Usa las categorías y colores configurados en Ajustes.",
-   "15. PRESUPUESTO Y PROYECCIÓN\nPara cada categoría y mes se muestran gasto real, plan, mes anterior y mismo mes del año anterior. Podés usar esas referencias o escribir tu presupuesto. ‘Proyectar desde año anterior’ usa como base los gastos reales del año anterior.",
-   "16. EXPORTAR CSV COMPLETO\nLa exportación incluye todo el historial, no solo el mes visible: fecha, tipo, moneda, monto, categoría, descripción, origen, texto original y fingerprint.",
-   "17. APARIENCIA Y SEGURIDAD\nEn Ajustes podés cambiar modo claro/oscuro, activar bloqueo biométrico y bloquear capturas de pantalla y la vista en aplicaciones recientes.",
-   "SI FALTA UN MOVIMIENTO\nVerificá el acceso a notificaciones. Si sigue visible, usá ‘Leer notificaciones activas’. Revisá la lista negra. Si sigue faltando, importá el Excel de eBROU, que es la fuente más completa para reconstruir el movimiento.",
-   "SI ALGO QUEDA EN ‘OTROS’\nUsá ‘Sugerir según mi histórico’ o agregá una palabra representativa del comercio o concepto a la lista blanca con la categoría correcta. La regla se aplicará también a movimientos similares futuros.",
-   "PRIVACIDAD\nLos movimientos, reglas y presupuestos se guardan localmente. Estas funciones no requieren las credenciales de tu banco."
-  };
-  LinearLayout root=form();EditText search=textEdit("🔍 Buscar en la ayuda…","");search.setSingleLine(true);root.addView(search,new LinearLayout.LayoutParams(-1,-2));ScrollView sc=new ScrollView(this);TextView t=tv("",15,TEXT);t.setPadding(dp(4),dp(10),dp(4),dp(18));sc.addView(t);root.addView(sc,new LinearLayout.LayoutParams(-1,dp(520)));
-  Runnable render=()->{String q=helpNorm(search.getText().toString().trim());StringBuilder out=new StringBuilder();for(String sec:sections)if(q.isEmpty()||helpNorm(sec).contains(q)){if(out.length()>0)out.append("\n\n");out.append(sec);}t.setText(out.length()==0?"No encontré esa palabra en la ayuda. Probá con otro término.":out.toString());sc.post(()->sc.fullScroll(View.FOCUS_UP));};render.run();
-  search.addTextChangedListener(new android.text.TextWatcher(){public void beforeTextChanged(CharSequence s,int st,int c,int a){}public void onTextChanged(CharSequence s,int st,int b,int c){render.run();}public void afterTextChanged(android.text.Editable e){}});
-  new AlertDialog.Builder(this).setTitle("Ayuda · ControlGastos").setView(root).setPositiveButton("Entendido",null).show();
+          old='f.addView(cat);f.addView(date);f.addView(tv("Origen: "+sourceLabel(source),13,MUTED));new AlertDialog.Builder(this).setTitle("Editar movimiento")'
+          new='f.addView(cat);f.addView(date);f.addView(tv("Origen: "+sourceLabel(source),13,MUTED));Button blacklist=button("⛔ Enviar a lista negra");blacklist.setOnClickListener(v->showBlacklistFromMovement(id,desc.getText().toString(),source));f.addView(blacklist);new AlertDialog.Builder(this).setTitle("Editar movimiento")'
+          if old not in s: raise SystemExit('edit insertion point not found')
+          s=s.replace(old,new,1)
+          marker=' private void showCategoryPicker(long id,String current)'
+          method=''' private void showBlacklistFromMovement(long id,String description,String source){
+  String proposed=description==null?"":description.trim();
+  EditText rule=textEdit("Palabra o frase a bloquear",proposed);
+  LinearLayout f=form();f.addView(tv("Esta regla se aplicará solo a futuras notificaciones. Revisá el texto antes de confirmar para no bloquear compras válidas por error.",14,MUTED));f.addView(rule);
+  new AlertDialog.Builder(this).setTitle("Enviar a lista negra").setView(f).setPositiveButton("Agregar y eliminar",(d,w)->{String r=rule.getText().toString().trim();if(r.isEmpty()){Toast.makeText(this,"Escribí una palabra o frase para bloquear",Toast.LENGTH_LONG).show();return;}ArrayList<String> words=BlacklistRules.load(this);boolean exists=false;String nr=helpNorm(r);for(String x:words)if(helpNorm(x).equals(nr)){exists=true;break;}if(!exists){words.add(0,r);BlacklistRules.save(this,words);}db.deleteTx(id);Toast.makeText(this,exists?"El movimiento fue enviado a la papelera; la regla ya estaba en la lista negra":"Agregado a lista negra y movimiento enviado a la papelera",Toast.LENGTH_LONG).show();refresh();}).setNegativeButton("Cancelar",null).show();
  }
 '''
-          s=s[:start]+method+s[end:]
+          if marker not in s: raise SystemExit('method marker not found')
+          s=s.replace(marker,method+marker,1)
+          h='   "PRIVACIDAD\\nLos movimientos, reglas y presupuestos se guardan localmente. Estas funciones no requieren las credenciales de tu banco."'
+          nh='   "ENVIAR A LISTA NEGRA DESDE UN MOVIMIENTO\\nAl editar un movimiento podés usar ‘⛔ Enviar a lista negra’. La app propone la descripción como regla, pero podés editarla antes de confirmar. Al aceptar, la palabra o frase se agrega a la lista negra para bloquear futuras notificaciones coincidentes y el movimiento actual se envía a la papelera, por lo que todavía puede restaurarse. La lista negra no filtra movimientos reales importados desde Excel eBROU.",\\n'+h
+          if h in s: s=s.replace(h,nh,1)
           p.write_text(s)
-          g=Path('app/build.gradle')
-          x=g.read_text().replace('versionCode 37','versionCode 38').replace("versionName '1.8.15'","versionName '1.8.16'")
-          g.write_text(x)
+          g=Path('app/build.gradle');x=g.read_text().replace('versionCode 47','versionCode 48').replace("versionName '1.8.25'","versionName '1.8.26'");g.write_text(x)
       - name: Commit changes
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
           git add app/src/main/java/com/pablo/controlgastos/HomeActivity.java app/build.gradle
-          git commit -m "Add searchable help and document latest features"
+          git commit -m "Add blacklist action from movement editor v1.8.26"
           git push
