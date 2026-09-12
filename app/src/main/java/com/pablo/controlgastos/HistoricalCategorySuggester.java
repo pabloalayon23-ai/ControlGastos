@@ -30,15 +30,14 @@ public final class HistoricalCategorySuggester {
     };
 
     public static ArrayList<Suggestion> scan(Context c){
-        HashSet<String> existing=new HashSet<>();for(DetectionRules.Rule r:DetectionRules.load(c))existing.add(DetectionRules.norm(r.word));
+        HashMap<String,String> existing=new HashMap<>();for(DetectionRules.Rule r:DetectionRules.load(c))existing.put(DetectionRules.norm(r.word),r.category==null?"":r.category.trim());
         ArrayList<String> texts=new ArrayList<>();ExpenseDb db=new ExpenseDb(c);Cursor q=db.getReadableDatabase().rawQuery("SELECT description,original_text FROM tx WHERE type='GASTO'",null);while(q.moveToNext()){String d=q.getString(0),o=q.getString(1);texts.add(DetectionRules.norm((d==null?"":d)+" "+(o==null?"":o)));}q.close();
         ArrayList<Suggestion> out=new ArrayList<>();
-        for(String[]x:CANDIDATES){String w=DetectionRules.norm(x[0]);if(existing.contains(w))continue;int hits=0;for(String t:texts)if(t.contains(w))hits++;if(hits>0)out.add(new Suggestion(x[0],x[1],hits));}
+        for(String[]x:CANDIDATES){String w=DetectionRules.norm(x[0]);String current=existing.get(w);if(current!=null&&current.equalsIgnoreCase(x[1]))continue;int hits=0;for(String t:texts)if(t.contains(w))hits++;if(hits>0)out.add(new Suggestion(x[0],x[1],hits));}
         out.sort((a,b)->{int d=Integer.compare(b.hits,a.hits);return d!=0?d:a.category.compareToIgnoreCase(b.category);});return out;
     }
 
     public static void apply(Context c,List<Suggestion> add){
-        ArrayList<DetectionRules.Rule> old=DetectionRules.load(c);ArrayList<String>w=new ArrayList<>(),cats=new ArrayList<>();HashSet<String>seen=new HashSet<>();for(DetectionRules.Rule r:old){w.add(r.word);cats.add(r.category);seen.add(DetectionRules.norm(r.word));}
-        for(Suggestion s:add)if(seen.add(DetectionRules.norm(s.word))){w.add(s.word);cats.add(s.category);}DetectionRules.save(c,w,cats);DetectionRules.reclassifyExisting(c);
+        ArrayList<DetectionRules.Rule> old=DetectionRules.load(c);LinkedHashMap<String,String[]> map=new LinkedHashMap<>();for(DetectionRules.Rule r:old)map.put(DetectionRules.norm(r.word),new String[]{r.word,r.category});for(Suggestion s:add)map.put(DetectionRules.norm(s.word),new String[]{s.word,s.category});ArrayList<String>w=new ArrayList<>(),cats=new ArrayList<>();for(String[]x:map.values()){w.add(x[0]);cats.add(x[1]);}DetectionRules.save(c,w,cats);DetectionRules.reclassifyExisting(c);
     }
 }
