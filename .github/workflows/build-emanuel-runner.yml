@@ -31,11 +31,11 @@ jobs:
         run: gradle assembleDebug --stacktrace
 
       - name: Rename APK
-        run: cp emanuel-game/app/build/outputs/apk/debug/app-debug.apk Emanuel-Aventuras-v2.0.0.apk
+        run: cp emanuel-game/app/build/outputs/apk/debug/app-debug.apk Emanuel-Aventuras-v3.0.0.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Emanuel-Aventuras-v2.0.0
-          path: Emanuel-Aventuras-v2.0.0.apk
+          name: Emanuel-Aventuras-v3.0.0
+          path: Emanuel-Aventuras-v3.0.0.apk
           if-no-files-found: error
