@@ -1,0 +1,47 @@
+name: Patch exact-date reconciliation v1.8.28
+permissions:
+  contents: write
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-exact-date-dedupe-v1828.yml'
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Patch exact-date reconciliation
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('app/src/main/java/com/pablo/controlgastos/ExpenseDb.java')
+          s=p.read_text()
+          old='''    private long[] duplicateBounds(long ts){\n        Calendar a=Calendar.getInstance(); a.setTimeInMillis(ts); a.set(Calendar.HOUR_OF_DAY,0); a.set(Calendar.MINUTE,0); a.set(Calendar.SECOND,0); a.set(Calendar.MILLISECOND,0); a.add(Calendar.DAY_OF_MONTH,-DUPLICATE_DAY_TOLERANCE);\n        Calendar b=Calendar.getInstance(); b.setTimeInMillis(ts); b.set(Calendar.HOUR_OF_DAY,0); b.set(Calendar.MINUTE,0); b.set(Calendar.SECOND,0); b.set(Calendar.MILLISECOND,0); b.add(Calendar.DAY_OF_MONTH,DUPLICATE_DAY_TOLERANCE+1);\n        return new long[]{a.getTimeInMillis(),b.getTimeInMillis()};\n    }'''
+          new='''    private long[] duplicateBounds(long ts){\n        // Conciliación Excel/notificación: misma fecha calendario exacta.\n        // Se usa original_ts cuando existe para no confundir la fecha contable ajustada (p. ej. salarios).\n        Calendar a=Calendar.getInstance(); a.setTimeInMillis(ts); a.set(Calendar.HOUR_OF_DAY,0); a.set(Calendar.MINUTE,0); a.set(Calendar.SECOND,0); a.set(Calendar.MILLISECOND,0);\n        Calendar b=(Calendar)a.clone(); b.add(Calendar.DAY_OF_MONTH,1);\n        return new long[]{a.getTimeInMillis(),b.getTimeInMillis()};\n    }'''
+          if old not in s: raise SystemExit('duplicateBounds block not found')
+          s=s.replace(old,new,1)
+          oldq='''SELECT description,ts FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND ts>=? AND ts<? AND (source LIKE 'banco-xls%' OR source LIKE 'conciliado:%') ORDER BY ABS(ts-?) ASC'''
+          newq='''SELECT description,COALESCE(original_ts,ts) FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND COALESCE(original_ts,ts)>=? AND COALESCE(original_ts,ts)<? AND (source LIKE 'banco-xls%' OR source LIKE 'conciliado:%') ORDER BY ABS(COALESCE(original_ts,ts)-?) ASC'''
+          if oldq not in s: raise SystemExit('imported duplicate query not found')
+          s=s.replace(oldq,newq,1)
+          oldq2='''SELECT id,description,category,original_text,ts,source FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND ts>=? AND ts<? AND source LIKE 'notificacion:%' AND (fingerprint IS NULL OR fingerprint='') ORDER BY ABS(ts-?) ASC'''
+          newq2='''SELECT id,description,category,original_text,COALESCE(original_ts,ts),source FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND COALESCE(original_ts,ts)>=? AND COALESCE(original_ts,ts)<? AND source LIKE 'notificacion:%' AND (fingerprint IS NULL OR fingerprint='') ORDER BY ABS(COALESCE(original_ts,ts)-?) ASC'''
+          if oldq2 not in s: raise SystemExit('notification match query not found')
+          s=s.replace(oldq2,newq2,1)
+          # Dentro de una única fecha ya no corresponde una tolerancia adicional de dos días.
+          s=s.replace('if(isGenericBankDescription(existing)&&Math.abs(ts-existingTs)<=2L*86400000L)genericNearCount++;','if(isGenericBankDescription(existing))genericNearCount++;',1)
+          s=s.replace('if(isGenericBankDescription(m.description)&&Math.abs(ts-m.ts)<=2L*86400000L){genericCount++;if(generic==null)generic=m;}','if(isGenericBankDescription(m.description)){genericCount++;if(generic==null)generic=m;}',1)
+          p.write_text(s)
+
+          g=Path('app/build.gradle')
+          x=g.read_text()
+          if "versionCode 49" not in x or "versionName '1.8.27'" not in x: raise SystemExit('unexpected current version')
+          x=x.replace('versionCode 49','versionCode 50',1).replace("versionName '1.8.27'","versionName '1.8.28'",1)
+          g.write_text(x)
+      - name: Commit changes
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add app/src/main/java/com/pablo/controlgastos/ExpenseDb.java app/build.gradle
+          git commit -m "Require exact transaction date for reconciliation v1.8.28"
+          git push
