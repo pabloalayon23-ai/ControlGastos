@@ -1,7 +1,7 @@
 name: Add blacklist from movement editor
 on:
   push:
-    paths: ['.trigger-blacklist-v1826']
+    paths: ['.trigger-blacklist-v1826', '.github/workflows/patch-blacklist-from-edit.yml']
 permissions:
   contents: write
 jobs:
@@ -29,7 +29,6 @@ jobs:
 '''
           if marker not in s: raise SystemExit('method marker not found')
           s=s.replace(marker,method+marker,1)
-          # Add help section before privacy
           h='   "PRIVACIDAD\\nLos movimientos, reglas y presupuestos se guardan localmente. Estas funciones no requieren las credenciales de tu banco."'
           nh='   "ENVIAR A LISTA NEGRA DESDE UN MOVIMIENTO\\nAl editar un movimiento proveniente de una notificación podés usar ‘⛔ Enviar a lista negra’. La app propone la descripción como regla, pero podés editarla antes de confirmar. Al aceptar, la palabra o frase se agrega a la lista negra para bloquear futuras notificaciones coincidentes y el movimiento actual se envía a la papelera, por lo que todavía puede restaurarse. La lista negra no filtra movimientos reales importados desde Excel eBROU.",\\n'+h
           if h in s: s=s.replace(h,nh,1)
