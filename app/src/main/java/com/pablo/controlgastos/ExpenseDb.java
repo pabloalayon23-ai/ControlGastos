@@ -8,13 +8,14 @@ import java.util.*;
 
 public class ExpenseDb extends SQLiteOpenHelper {
     public static final String DB="gastos.db";
+    private final Context context;
     private static final int DUPLICATE_DAY_TOLERANCE=4;
     private static final double DUPLICATE_AMOUNT_TOLERANCE=0.01d;
 
-    public ExpenseDb(Context c){ super(c,DB,null,2); }
+    public ExpenseDb(Context c){ super(c,DB,null,3); context=c.getApplicationContext(); }
 
     @Override public void onCreate(SQLiteDatabase db){
-        db.execSQL("CREATE TABLE tx(id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, amount REAL NOT NULL, currency TEXT NOT NULL, category TEXT, description TEXT, original_text TEXT, ts INTEGER NOT NULL, source TEXT NOT NULL, fingerprint TEXT)");
+        db.execSQL("CREATE TABLE tx(id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, amount REAL NOT NULL, currency TEXT NOT NULL, category TEXT, description TEXT, original_text TEXT, ts INTEGER NOT NULL, source TEXT NOT NULL, fingerprint TEXT, original_ts INTEGER)");
         db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_fingerprint ON tx(fingerprint) WHERE fingerprint IS NOT NULL AND fingerprint<>''");
         db.execSQL("CREATE TABLE recurring(id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, amount REAL NOT NULL, currency TEXT NOT NULL, category TEXT, description TEXT, day INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1, last_ym TEXT)");
     }
@@ -24,23 +25,36 @@ public class ExpenseDb extends SQLiteOpenHelper {
             try{ db.execSQL("ALTER TABLE tx ADD COLUMN fingerprint TEXT"); }catch(Exception ignored){}
             db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS idx_tx_fingerprint ON tx(fingerprint) WHERE fingerprint IS NOT NULL AND fingerprint<>''");
         }
+        if(oldVersion<3){
+            try{ db.execSQL("ALTER TABLE tx ADD COLUMN original_ts INTEGER"); }catch(Exception ignored){}
+            try{ db.execSQL("UPDATE tx SET original_ts=ts WHERE original_ts IS NULL OR original_ts=0"); }catch(Exception ignored){}
+        }
     }
 
+    public static boolean salaryMonthShiftEnabled(Context c){return c.getSharedPreferences("behavior",Context.MODE_PRIVATE).getBoolean("salary_next_month",true);}
+    public static void setSalaryMonthShiftEnabled(Context c,boolean enabled){c.getSharedPreferences("behavior",Context.MODE_PRIVATE).edit().putBoolean("salary_next_month",enabled).apply();}
+    private static boolean isSalary(String type,String description){if(!"INGRESO".equalsIgnoreCase(type)||description==null)return false;String n=java.text.Normalizer.normalize(description,java.text.Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+"," ").trim();return n.contains("pago de salarios")||n.contains("pago de salario")||n.equals("salarios")||n.equals("salario");}
+    private long effectiveTs(String type,String description,long originalTs){if(!salaryMonthShiftEnabled(context)||!isSalary(type,description))return originalTs;Calendar c=Calendar.getInstance();c.setTimeInMillis(originalTs);if(c.get(Calendar.DAY_OF_MONTH)<25)return originalTs;c.add(Calendar.MONTH,1);c.set(Calendar.DAY_OF_MONTH,1);c.set(Calendar.HOUR_OF_DAY,12);c.set(Calendar.MINUTE,0);c.set(Calendar.SECOND,0);c.set(Calendar.MILLISECOND,0);return c.getTimeInMillis();}
+    public void reapplySalaryMonthRule(){SQLiteDatabase db=getWritableDatabase();Cursor c=db.rawQuery("SELECT id,type,description,COALESCE(original_ts,ts) FROM tx",null);try{while(c.moveToNext()){long id=c.getLong(0),orig=c.getLong(3);ContentValues v=new ContentValues();v.put("original_ts",orig);v.put("ts",effectiveTs(c.getString(1),c.getString(2),orig));db.update("tx",v,"id=?",new String[]{String.valueOf(id)});}}finally{c.close();}}
+
     public long addTx(String type,double amount,String currency,String category,String description,String original,long ts,String source){
-        ContentValues v=new ContentValues(); v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("original_text",original); v.put("ts",ts); v.put("source",source);
+        long originalTs=ts;ts=effectiveTs(type,description,originalTs);
+        ContentValues v=new ContentValues(); v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("original_text",original); v.put("ts",ts); v.put("original_ts",originalTs); v.put("source",source);
         return getWritableDatabase().insert("tx",null,v);
     }
 
     public boolean updateTx(long id,String type,double amount,String currency,String category,String description,long ts){
         ContentValues v=new ContentValues();
-        v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("ts",ts);
+        long originalTs=ts;ts=effectiveTs(type,description,originalTs);
+        v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("ts",ts); v.put("original_ts",originalTs);
         return getWritableDatabase().update("tx",v,"id=?",new String[]{String.valueOf(id)})==1;
     }
 
     public boolean addImportedTx(String type,double amount,String currency,String category,String description,String original,long ts,String source,String fingerprint){
         if(hasFingerprint(fingerprint)) return false;
         if(linkImportedToNotification(type,amount,currency,category,description,original,ts,source,fingerprint)) return false;
-        ContentValues v=new ContentValues(); v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("original_text",original); v.put("ts",ts); v.put("source",source); v.put("fingerprint",fingerprint);
+        long originalTs=ts;ts=effectiveTs(type,description,originalTs);
+        ContentValues v=new ContentValues(); v.put("type",type); v.put("amount",amount); v.put("currency",currency); v.put("category",category); v.put("description",description); v.put("original_text",original); v.put("ts",ts); v.put("original_ts",originalTs); v.put("source",source); v.put("fingerprint",fingerprint);
         return getWritableDatabase().insertWithOnConflict("tx",null,v,SQLiteDatabase.CONFLICT_IGNORE)!=-1;
     }
 
