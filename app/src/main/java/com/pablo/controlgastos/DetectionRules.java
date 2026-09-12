@@ -79,11 +79,21 @@ public final class DetectionRules {
 
     public static String rulesSnapshot(Context c){StringBuilder b=new StringBuilder();for(Rule r:load(c)){if(b.length()>0)b.append('\n');b.append(android.util.Base64.encodeToString(r.word.getBytes(java.nio.charset.StandardCharsets.UTF_8),android.util.Base64.NO_WRAP)).append('|').append(android.util.Base64.encodeToString(r.category.getBytes(java.nio.charset.StandardCharsets.UTF_8),android.util.Base64.NO_WRAP));}return b.toString();}
     public static void restoreRulesSnapshot(Context c,String snapshot){if(snapshot==null)return;ArrayList<String>w=new ArrayList<>(),cats=new ArrayList<>();for(String line:snapshot.split("\\n")){int k=line.indexOf('|');if(k<0)continue;try{w.add(new String(android.util.Base64.decode(line.substring(0,k),android.util.Base64.DEFAULT),java.nio.charset.StandardCharsets.UTF_8));cats.add(new String(android.util.Base64.decode(line.substring(k+1),android.util.Base64.DEFAULT),java.nio.charset.StandardCharsets.UTF_8));}catch(Exception ignored){}}if(!w.isEmpty())saveInternal(c,w,cats);}
+
+    private static void assignCategoryToSameNamedExpenses(Context c,ExpenseDb db,String description,String category,String snapshot){
+        String target=norm(description);if(target.isEmpty())return;
+        Cursor q=db.getReadableDatabase().rawQuery("SELECT id,description FROM tx WHERE type='GASTO'",null);
+        ArrayList<Long> ids=new ArrayList<>();
+        try{while(q.moveToNext()){String d=q.getString(1)==null?"":q.getString(1);if(target.equals(norm(d)))ids.add(q.getLong(0));}}finally{q.close();}
+        for(Long txId:ids)db.updateCategoryWithHistory(txId,category,snapshot);
+    }
+
     public static void assignMovementCategory(Context c,long id,String newCategory){
         if(newCategory==null||newCategory.trim().isEmpty())return;String category=newCategory.trim();ExpenseDb db=new ExpenseDb(c);
         Cursor q=db.getReadableDatabase().rawQuery("SELECT type,description,original_text FROM tx WHERE id=? LIMIT 1",new String[]{String.valueOf(id)});String type="",desc="",original="";
         if(q.moveToFirst()){type=q.getString(0);desc=q.getString(1)==null?"":q.getString(1);original=q.getString(2)==null?"":q.getString(2);}q.close();
-        db.updateCategoryWithHistory(id,category,rulesSnapshot(c));
+        String snapshot=rulesSnapshot(c);
+        if("GASTO".equalsIgnoreCase(type))assignCategoryToSameNamedExpenses(c,db,desc,category,snapshot);else db.updateCategoryWithHistory(id,category,snapshot);
         if(!"GASTO".equalsIgnoreCase(type))return;
         String text=(original+" "+desc).trim();ArrayList<Rule> rules=load(c);int best=-1,bestLen=-1;
         for(int i=0;i<rules.size();i++){Rule r=rules.get(i);String w=norm(r.word);if(w.isEmpty()||isGenericLearningWord(w))continue;if(norm(text).contains(w)&&w.length()>bestLen){best=i;bestLen=w.length();}}
