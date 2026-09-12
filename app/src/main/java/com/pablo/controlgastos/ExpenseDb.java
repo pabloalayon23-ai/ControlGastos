@@ -12,7 +12,7 @@ public class ExpenseDb extends SQLiteOpenHelper {
     private static final int DUPLICATE_DAY_TOLERANCE=4;
     private static final double DUPLICATE_AMOUNT_TOLERANCE=0.01d;
 
-    public ExpenseDb(Context c){ super(c,DB,null,3); context=c.getApplicationContext(); }
+    public ExpenseDb(Context c){ super(c,DB,null,3); context=c.getApplicationContext(); reapplySalaryMonthRule(); }
 
     @Override public void onCreate(SQLiteDatabase db){
         db.execSQL("CREATE TABLE tx(id INTEGER PRIMARY KEY AUTOINCREMENT, type TEXT NOT NULL, amount REAL NOT NULL, currency TEXT NOT NULL, category TEXT, description TEXT, original_text TEXT, ts INTEGER NOT NULL, source TEXT NOT NULL, fingerprint TEXT, original_ts INTEGER)");
@@ -114,7 +114,7 @@ public class ExpenseDb extends SQLiteOpenHelper {
         if(isRicherDescription(description,m.description))v.put("description",description);
         if(shouldReplaceCategory(m.category,category))v.put("category",category);
         if(original!=null&&!original.trim().isEmpty())v.put("original_text",mergeOriginal(m.original,original));
-        if(ts>0&&Math.abs(ts-m.ts)<=DUPLICATE_DAY_TOLERANCE*86400000L)v.put("ts",ts);
+        if(ts>0&&Math.abs(ts-m.ts)<=DUPLICATE_DAY_TOLERANCE*86400000L){long originalTs=ts;v.put("original_ts",originalTs);v.put("ts",effectiveTs(type,description,originalTs));}
         if(source!=null&&!source.isEmpty())v.put("source","conciliado:"+source+"+"+(m.source==null?"notificacion":m.source));
         return getWritableDatabase().update("tx",v,"id=? AND (fingerprint IS NULL OR fingerprint='')",new String[]{String.valueOf(m.id)})==1;
     }
