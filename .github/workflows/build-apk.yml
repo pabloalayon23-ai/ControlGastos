@@ -5,12 +5,114 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Apply reconciliation v1.8.34 patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          gradle=Path('app/build.gradle')
+          gs=gradle.read_text()
+          if "versionName '1.8.33'" not in gs:
+              print('Reconciliation patch already applied; nothing to change.')
+              raise SystemExit(0)
+
+          p=Path('app/src/main/java/com/pablo/controlgastos/ExpenseDb.java')
+          s=p.read_text()
+          s=s.replace('private static final double DUPLICATE_AMOUNT_TOLERANCE=0.01d;','private static final double DUPLICATE_AMOUNT_TOLERANCE=0.001d;')
+          start=s.index('    public boolean hasImportedDuplicate(')
+          end=s.index('    public long addRecurring(',start)
+          replacement=r'''    public boolean hasImportedDuplicate(String type,double amount,String currency,String description,long ts){
+        long[] d=duplicateBounds(ts);
+        Cursor c=getReadableDatabase().rawQuery("SELECT description FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND COALESCE(original_ts,ts)>=? AND COALESCE(original_ts,ts)<? AND (source LIKE 'banco-xls%' OR source LIKE 'conciliado:%') ORDER BY ABS(COALESCE(original_ts,ts)-?) ASC",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1]),String.valueOf(ts)});
+        try{while(c.moveToNext())if(merchantMatches(description,c.getString(0)))return true;return false;}finally{c.close();}
+    }
+
+    private static class NotificationMatch{long id,ts;String description,category,original,source,fingerprint;}
+    private NotificationMatch findNotificationMatch(String type,double amount,String currency,String description,long ts){
+        long[] d=duplicateBounds(ts);
+        Cursor c=getReadableDatabase().rawQuery("SELECT id,description,category,original_text,COALESCE(original_ts,ts),source,fingerprint FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND COALESCE(original_ts,ts)>=? AND COALESCE(original_ts,ts)<? AND source LIKE 'notificacion:%' ORDER BY ABS(COALESCE(original_ts,ts)-?) ASC",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1]),String.valueOf(ts)});
+        try{while(c.moveToNext()){
+            NotificationMatch m=new NotificationMatch();m.id=c.getLong(0);m.description=c.getString(1);m.category=c.getString(2);m.original=c.getString(3);m.ts=c.getLong(4);m.source=c.getString(5);m.fingerprint=c.getString(6);
+            if(merchantMatches(description,m.description))return m;
+        }}finally{c.close();}
+        return null;
+    }
+
+    public boolean wouldLinkImportedToNotification(String type,double amount,String currency,String description,long ts){return findNotificationMatch(type,amount,currency,description,ts)!=null;}
+
+    public boolean linkImportedToNotification(String type,double amount,String currency,String category,String description,String original,long ts,String source,String fingerprint){
+        if(fingerprint==null||fingerprint.isEmpty()||hasFingerprint(fingerprint))return false;
+        NotificationMatch m=findNotificationMatch(type,amount,currency,description,ts);if(m==null)return false;
+        ContentValues v=new ContentValues();if(m.fingerprint==null||m.fingerprint.isEmpty())v.put("fingerprint",fingerprint);
+        if(isRicherDescription(description,m.description))v.put("description",description);
+        if(shouldReplaceCategory(m.category,category))v.put("category",category);
+        if(original!=null&&!original.trim().isEmpty())v.put("original_text",mergeOriginal(m.original,original));
+        if(ts>0){long originalTs=ts;v.put("original_ts",originalTs);v.put("ts",effectiveTs(type,description,originalTs));}
+        if(source!=null&&!source.isEmpty())v.put("source","conciliado:"+source+"+"+(m.source==null?"notificacion":m.source));
+        return getWritableDatabase().update("tx",v,"id=?",new String[]{String.valueOf(m.id)})==1;
+    }
+
+    private static boolean isRicherDescription(String newer,String older){
+        String n=newer==null?"":newer.trim(),o=older==null?"":older.trim();if(n.isEmpty())return false;if(o.isEmpty())return true;
+        String ok=merchantKey(o),nk=merchantKey(n);if(nk.isEmpty())return false;
+        return isGenericBankDescription(o)||n.length()>o.length()+3||(!ok.isEmpty()&&nk.contains(ok));
+    }
+    private static boolean isGenericBankDescription(String s){if(s==null)return true;String n=java.text.Normalizer.normalize(s,java.text.Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+"," ").trim();return n.isEmpty()||n.equals("transferencia")||n.equals("transf")||n.equals("trf")||n.equals("notificacion bancaria")||n.equals("compra visa brou")||n.equals("movimiento bancario");}
+    private static boolean shouldReplaceCategory(String oldCat,String newCat){
+        if(newCat==null||newCat.trim().isEmpty())return false;if(oldCat==null||oldCat.trim().isEmpty())return true;
+        String o=oldCat.trim().toLowerCase(Locale.ROOT);return o.equals("sin categoría")||o.equals("sin categoria")||o.equals("otros")||o.equals("banco")||o.equals("transferencias");
+    }
+    private static String mergeOriginal(String a,String b){String x=a==null?"":a.trim(),y=b==null?"":b.trim();if(x.isEmpty())return y;if(y.isEmpty()||x.contains(y))return x;return x+"\n--- Excel eBROU ---\n"+y;}
+
+    public static boolean merchantMatches(String a,String b){
+        String x=merchantKey(a),y=merchantKey(b);if(x.length()<3||y.length()<3)return false;if(x.equals(y)||x.contains(y)||y.contains(x))return true;
+        HashSet<String> sx=new HashSet<>(Arrays.asList(x.split(" ")));for(String t:y.split(" "))if(t.length()>=4&&sx.contains(t))return true;return false;
+    }
+    private static String merchantKey(String s){
+        if(s==null)return "";String n=java.text.Normalizer.normalize(s,java.text.Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT);
+        n=n.replaceAll("(?i)\\b(comercio|compra|debito|credito|tarjeta|visa|brou|presencial|transaccion|movimiento|notificacion|bancaria|transferencia|transf|trf|nro|numero|local|suc|sucursal)\\b"," ");
+        n=n.replaceAll("[^a-z0-9]+"," ").replaceAll("\\b\\d+\\b"," ").replaceAll("\\b[a-z]\\b"," ").replaceAll("\\s+"," ").trim();return n;
+    }
+
+'''
+          s=s[:start]+replacement+s[end:]
+          p.write_text(s)
+
+          p=Path('app/src/main/java/com/pablo/controlgastos/MonthlyInsightsOverlay.java')
+          h=p.read_text()
+          h=h.replace('new String[]{"Ayuda general","Análisis automático del mes"},(d,w)->{if(w==0)invokeOriginalHelp(a);else showAnalysisHelp(a);}', 'new String[]{"Ayuda general","Análisis automático del mes","Conciliación de movimientos"},(d,w)->{if(w==0)invokeOriginalHelp(a);else if(w==1)showAnalysisHelp(a);else showReconciliationHelp(a);}')
+          marker=' private static void showAnalysisHelp(Activity a){'
+          method=''' private static void showReconciliationHelp(Activity a){
+  String t="CONCILIACIÓN DE MOVIMIENTOS\\n\\nControlGastos usa la misma regla al importar eBROU y en Ajustes → Conciliar movimientos.\\n\\nPara considerar dos registros como el mismo movimiento exige: misma fecha calendario, importe exacto al centésimo, misma moneda, mismo tipo (gasto o ingreso) y una parte suficientemente parecida del nombre/comercio. Se ignoran diferencias como ‘Comercio:’, tildes, mayúsculas, símbolos y números de local o sucursal.\\n\\nEjemplo: ‘DISCO N° 23’ y ‘Comercio: DISCO N’ pueden conciliar si también coinciden fecha e importe.\\n\\nDurante la importación, una coincidencia clara se vincula al movimiento existente en vez de crear otro y se conserva la categoría útil ya asignada.\\n\\nEl botón de Ajustes revisa posibles duplicados ya guardados y los muestra uno por uno. Nada se unifica sin confirmación. La copia eliminada queda en la Papelera.";
+  TextView tv=new TextView(a);tv.setText(t);tv.setTextSize(15);tv.setPadding(dp(a,24),dp(a,16),dp(a,24),dp(a,16));new AlertDialog.Builder(a).setTitle("Conciliación").setView(tv).setPositiveButton("Entendido",null).show();
+ }
+
+'''
+          if 'showReconciliationHelp(Activity a)' not in h:h=h.replace(marker,method+marker)
+          p.write_text(h)
+
+          gradle.write_text(gs.replace('versionCode 55','versionCode 56').replace("versionName '1.8.33'","versionName '1.8.34'"))
+          PY
+          if git diff --quiet; then
+            echo "No patch changes"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add app/src/main/java/com/pablo/controlgastos/ExpenseDb.java app/src/main/java/com/pablo/controlgastos/MonthlyInsightsOverlay.java app/build.gradle
+            git commit -m "Apply reconciliation rules and help v1.8.34"
+            git push
+          fi
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
