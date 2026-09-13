@@ -38,15 +38,9 @@ jobs:
 
       - name: Fix Godot script typing
         run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          p=Path('emanuel-game/godot/main.gd')
-          s=p.read_text()
-          s=s.replace('var cy := c.y + sin(c.phase)*10.0','var cy: float = float(c.y) + sin(float(c.phase))*10.0')
-          s=s.replace('var x := wx-fmod(world_x*0.13,1420.0)','var x: float = float(wx)-fmod(world_x*0.13,1420.0)')
-          s=s.replace('var cy := c.y+sin(c.phase)*10.0','var cy: float = float(c.y)+sin(float(c.phase))*10.0')
-          p.write_text(s)
-          PY
+          sed -i 's/var cy := c.y + sin(c.phase)\*10.0/var cy: float = float(c.y) + sin(float(c.phase))*10.0/g' emanuel-game/godot/main.gd
+          sed -i 's/var x := wx-fmod(world_x\*0.13,1420.0)/var x: float = float(wx)-fmod(world_x*0.13,1420.0)/g' emanuel-game/godot/main.gd
+          sed -i 's/var cy := c.y+sin(c.phase)\*10.0/var cy: float = float(c.y)+sin(float(c.phase))*10.0/g' emanuel-game/godot/main.gd
 
       - name: Import project
         run: |
