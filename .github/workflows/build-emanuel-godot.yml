@@ -1,0 +1,57 @@
+name: Build Emanuel Godot APK
+
+on:
+  push:
+    branches: [ emanuel-runner ]
+    paths:
+      - 'emanuel-game/project.godot'
+      - 'emanuel-game/export_presets.cfg'
+      - 'emanuel-game/godot/**'
+      - 'emanuel-game/app/src/main/res/raw/atlas*.txt'
+      - '.github/workflows/build-emanuel-godot.yml'
+  workflow_dispatch:
+
+jobs:
+  export_android:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Export Godot Android APK
+        id: export
+        uses: firebelley/godot-export@v8.0.0
+        with:
+          godot_executable_download_url: https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip
+          godot_export_templates_download_url: https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz
+          relative_project_path: ./emanuel-game
+          presets_to_export: Android
+          export_debug: true
+          use_preset_export_path: true
+          cache: true
+
+      - name: Find exported APK
+        run: |
+          find emanuel-game -type f -name '*.apk' -print
+          mkdir -p artifact
+          APK=$(find emanuel-game -type f -name '*.apk' | head -n 1)
+          test -n "$APK"
+          cp "$APK" artifact/Emanuel-Aventuras-Godot-v1.apk
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Emanuel-Aventuras-Godot-v1
+          path: artifact/Emanuel-Aventuras-Godot-v1.apk
+          if-no-files-found: error
