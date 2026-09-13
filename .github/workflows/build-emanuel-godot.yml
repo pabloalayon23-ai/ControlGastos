@@ -13,44 +13,30 @@ on:
 
 jobs:
   export_android:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    container:
+      image: barichello/godot-ci:4.3
     permissions:
       contents: read
+    env:
+      GODOT_VERSION: '4.3'
+      PROJECT_PATH: emanuel-game
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v4
 
-      - name: Set up Java
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Godot 4.3 Android requirements
-        run: sdkmanager "platform-tools" "build-tools;34.0.0" "platforms;android-34" "cmake;3.10.2.4988404" "ndk;23.2.8568313"
-
-      - name: Configure Godot 4.3 Android paths and debug keystore
+      - name: Prepare Godot CI environment
         run: |
-          mkdir -p "$HOME/.config/godot" "$HOME/.local/share/godot/keystores"
-          keytool -genkeypair -v -keystore "$HOME/.local/share/godot/keystores/debug.keystore" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Emanuel Aventuras,C=UY"
-          cat > "$HOME/.config/godot/editor_settings-4.3.tres" <<EOF
-          [gd_resource type="EditorSettings" format=3]
+          mkdir -p ~/.local/share/godot/export_templates/
+          mkdir -p ~/.config/
+          if [ -d /root/.config/godot ]; then rm -rf ~/.config/godot; mv /root/.config/godot ~/.config/godot; fi
+          if [ -d /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable ]; then
+            rm -rf ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+            mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          fi
+          echo 'export/android/java_sdk_path = "/usr/lib/jvm/java-17-openjdk-amd64"' >> ~/.config/godot/editor_settings-4.3.tres
 
-          [resource]
-          export/android/android_sdk_path = "$ANDROID_SDK_ROOT"
-          export/android/java_sdk_path = "$JAVA_HOME"
-          export/android/debug_keystore = "$HOME/.local/share/godot/keystores/debug.keystore"
-          export/android/debug_keystore_user = "androiddebugkey"
-          export/android/debug_keystore_pass = "android"
-          export/android/force_system_user = false
-          export/android/shutdown_adb_on_exit = true
-          EOF
-          cp "$HOME/.config/godot/editor_settings-4.3.tres" "$HOME/.config/godot/editor_settings-4.tres"
-
-      - name: Fix Godot numeric type inference
+      - name: Fix Godot script typing
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -62,30 +48,26 @@ jobs:
           p.write_text(s)
           PY
 
-      - name: Export Godot Android APK
-        id: export
-        uses: firebelley/godot-export@v8.0.0
-        with:
-          godot_executable_download_url: https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_linux.x86_64.zip
-          godot_export_templates_download_url: https://github.com/godotengine/godot/releases/download/4.3-stable/Godot_v4.3-stable_export_templates.tpz
-          relative_project_path: ./emanuel-game
-          presets_to_export: Android
-          export_debug: true
-          use_preset_export_path: true
-          cache: true
-          verbose: true
-
-      - name: Collect and verify APK
+      - name: Import project
         run: |
-          APK=$(find emanuel-game "$HOME/.local/share/godot/builds" -type f -name '*.apk' 2>/dev/null | head -n 1)
-          test -n "$APK"
-          mkdir -p artifact
-          cp "$APK" artifact/Emanuel-Aventuras-Godot-v1.apk
-          "$ANDROID_SDK_ROOT/build-tools/34.0.0/apksigner" verify --verbose artifact/Emanuel-Aventuras-Godot-v1.apk
+          cd "$PROJECT_PATH"
+          godot --headless --verbose --editor --quit
+
+      - name: Export Android debug APK
+        run: |
+          mkdir -p build/android
+          EXPORT_DIR="$(readlink -f build/android)"
+          cd "$PROJECT_PATH"
+          godot --headless --verbose --export-debug "Android" "$EXPORT_DIR/Emanuel-Aventuras-Godot-v1.apk"
+
+      - name: Verify APK
+        run: |
+          test -f build/android/Emanuel-Aventuras-Godot-v1.apk
+          ls -lh build/android/Emanuel-Aventuras-Godot-v1.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Emanuel-Aventuras-Godot-v1
-          path: artifact/Emanuel-Aventuras-Godot-v1.apk
+          path: build/android/Emanuel-Aventuras-Godot-v1.apk
           if-no-files-found: error
