@@ -23,6 +23,7 @@ jobs:
       PROJECT_PATH: emanuel-game
       GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
       GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
+      GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /github/home/.android/debug.keystore
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,15 +53,14 @@ jobs:
           fi
           echo 'export/android/java_sdk_path = "/usr/lib/jvm/java-17-openjdk-amd64"' >> ~/.config/godot/editor_settings-4.3.tres
           echo 'export/android/android_sdk_path = "/usr/lib/android-sdk"' >> ~/.config/godot/editor_settings-4.3.tres
-          echo 'export/android/debug_keystore = "'"$HOME"'/.android/debug.keystore"' >> ~/.config/godot/editor_settings-4.3.tres
+          echo 'export/android/debug_keystore = "/github/home/.android/debug.keystore"' >> ~/.config/godot/editor_settings-4.3.tres
           echo 'export/android/debug_keystore_user = "androiddebugkey"' >> ~/.config/godot/editor_settings-4.3.tres
           echo 'export/android/debug_keystore_pass = "android"' >> ~/.config/godot/editor_settings-4.3.tres
-          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=$HOME/.android/debug.keystore" >> "$GITHUB_ENV"
 
       - name: Verify debug signing key
         run: |
-          test -f "$HOME/.android/debug.keystore"
-          keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | head -n 20
+          test -f "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH"
+          keytool -list -v -keystore "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH" -storepass android -alias androiddebugkey | head -n 20
 
       - name: Fix Godot script typing
         run: |
@@ -74,10 +74,6 @@ jobs:
           godot --headless --verbose --editor --quit
 
       - name: Export Android debug APK
-        env:
-          GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /root/.android/debug.keystore
-          GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
-          GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
         run: |
           mkdir -p build/android
           EXPORT_DIR="$(readlink -f build/android)"
