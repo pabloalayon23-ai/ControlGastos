@@ -73,12 +73,18 @@ jobs:
           cd "$PROJECT_PATH"
           godot --headless --verbose --editor --quit
 
+      - name: Install Android build template
+        run: |
+          cd "$PROJECT_PATH"
+          godot --headless --verbose --install-android-build-template --editor --quit
+          test -d android/build
+
       - name: Export Android debug APK
         run: |
           mkdir -p build/android
           EXPORT_DIR="$(readlink -f build/android)"
           cd "$PROJECT_PATH"
-          godot --headless --verbose --export-debug "Android" "$EXPORT_DIR/Emanuel-Aventuras-Godot-v1.apk"
+          godot --headless --verbose --install-android-build-template --export-debug "Android" "$EXPORT_DIR/Emanuel-Aventuras-Godot-v1.apk"
 
       - name: Verify APK signature
         run: |
