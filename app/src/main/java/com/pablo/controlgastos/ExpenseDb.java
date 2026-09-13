@@ -10,7 +10,7 @@ public class ExpenseDb extends SQLiteOpenHelper {
     public static final String DB="gastos.db";
     private final Context context;
     private static final int DUPLICATE_DAY_TOLERANCE=4;
-    private static final double DUPLICATE_AMOUNT_TOLERANCE=0.01d;
+    private static final double DUPLICATE_AMOUNT_TOLERANCE=0.001d;
 
     public ExpenseDb(Context c){ super(c,DB,null,4); context=c.getApplicationContext(); reapplySalaryMonthRule(); }
 
@@ -79,8 +79,6 @@ public class ExpenseDb extends SQLiteOpenHelper {
     }
 
     private long[] duplicateBounds(long ts){
-        // Conciliación Excel/notificación: misma fecha calendario exacta.
-        // Se usa original_ts cuando existe para no confundir la fecha contable ajustada (p. ej. salarios).
         Calendar a=Calendar.getInstance(); a.setTimeInMillis(ts); a.set(Calendar.HOUR_OF_DAY,0); a.set(Calendar.MINUTE,0); a.set(Calendar.SECOND,0); a.set(Calendar.MILLISECOND,0);
         Calendar b=(Calendar)a.clone(); b.add(Calendar.DAY_OF_MONTH,1);
         return new long[]{a.getTimeInMillis(),b.getTimeInMillis()};
@@ -88,45 +86,33 @@ public class ExpenseDb extends SQLiteOpenHelper {
 
     public boolean hasImportedDuplicate(String type,double amount,String currency,String description,long ts){
         long[] d=duplicateBounds(ts);
-        Cursor c=getReadableDatabase().rawQuery("SELECT description,COALESCE(original_ts,ts) FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND COALESCE(original_ts,ts)>=? AND COALESCE(original_ts,ts)<? AND (source LIKE 'banco-xls%' OR source LIKE 'conciliado:%') ORDER BY ABS(COALESCE(original_ts,ts)-?) ASC",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1]),String.valueOf(ts)});
-        int genericNearCount=0;
-        try{
-            while(c.moveToNext()){
-                String existing=c.getString(0);long existingTs=c.getLong(1);
-                if(merchantMatches(description,existing))return true;
-                if(isGenericBankDescription(existing))genericNearCount++;
-            }
-            return genericNearCount==1;
-        }finally{c.close();}
+        Cursor c=getReadableDatabase().rawQuery("SELECT description FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND COALESCE(original_ts,ts)>=? AND COALESCE(original_ts,ts)<? AND (source LIKE 'banco-xls%' OR source LIKE 'conciliado:%') ORDER BY ABS(COALESCE(original_ts,ts)-?) ASC",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1]),String.valueOf(ts)});
+        try{while(c.moveToNext())if(merchantMatches(description,c.getString(0)))return true;return false;}finally{c.close();}
     }
 
-    private static class NotificationMatch{long id,ts;String description,category,original,source;}
+    private static class NotificationMatch{long id,ts;String description,category,original,source,fingerprint;}
     private NotificationMatch findNotificationMatch(String type,double amount,String currency,String description,long ts){
         long[] d=duplicateBounds(ts);
-        Cursor c=getReadableDatabase().rawQuery("SELECT id,description,category,original_text,COALESCE(original_ts,ts),source FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND COALESCE(original_ts,ts)>=? AND COALESCE(original_ts,ts)<? AND source LIKE 'notificacion:%' AND (fingerprint IS NULL OR fingerprint='') ORDER BY ABS(COALESCE(original_ts,ts)-?) ASC",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1]),String.valueOf(ts)});
-        NotificationMatch generic=null,strong=null;int genericCount=0;
+        Cursor c=getReadableDatabase().rawQuery("SELECT id,description,category,original_text,COALESCE(original_ts,ts),source,fingerprint FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND COALESCE(original_ts,ts)>=? AND COALESCE(original_ts,ts)<? AND source LIKE 'notificacion:%' ORDER BY ABS(COALESCE(original_ts,ts)-?) ASC",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1]),String.valueOf(ts)});
         try{while(c.moveToNext()){
-            NotificationMatch m=new NotificationMatch();m.id=c.getLong(0);m.description=c.getString(1);m.category=c.getString(2);m.original=c.getString(3);m.ts=c.getLong(4);m.source=c.getString(5);
-            if(merchantMatches(description,m.description)){strong=m;break;}
-            if(isGenericBankDescription(m.description)){genericCount++;if(generic==null)generic=m;}
+            NotificationMatch m=new NotificationMatch();m.id=c.getLong(0);m.description=c.getString(1);m.category=c.getString(2);m.original=c.getString(3);m.ts=c.getLong(4);m.source=c.getString(5);m.fingerprint=c.getString(6);
+            if(merchantMatches(description,m.description))return m;
         }}finally{c.close();}
-        return strong!=null?strong:(genericCount==1?generic:null);
+        return null;
     }
 
-    public boolean wouldLinkImportedToNotification(String type,double amount,String currency,String description,long ts){
-        return findNotificationMatch(type,amount,currency,description,ts)!=null;
-    }
+    public boolean wouldLinkImportedToNotification(String type,double amount,String currency,String description,long ts){return findNotificationMatch(type,amount,currency,description,ts)!=null;}
 
     public boolean linkImportedToNotification(String type,double amount,String currency,String category,String description,String original,long ts,String source,String fingerprint){
-        if(fingerprint==null || fingerprint.isEmpty() || hasFingerprint(fingerprint)) return false;
+        if(fingerprint==null||fingerprint.isEmpty()||hasFingerprint(fingerprint))return false;
         NotificationMatch m=findNotificationMatch(type,amount,currency,description,ts);if(m==null)return false;
-        ContentValues v=new ContentValues();v.put("fingerprint",fingerprint);
+        ContentValues v=new ContentValues();if(m.fingerprint==null||m.fingerprint.isEmpty())v.put("fingerprint",fingerprint);
         if(isRicherDescription(description,m.description))v.put("description",description);
         if(shouldReplaceCategory(m.category,category))v.put("category",category);
         if(original!=null&&!original.trim().isEmpty())v.put("original_text",mergeOriginal(m.original,original));
-        if(ts>0&&Math.abs(ts-m.ts)<=DUPLICATE_DAY_TOLERANCE*86400000L){long originalTs=ts;v.put("original_ts",originalTs);v.put("ts",effectiveTs(type,description,originalTs));}
+        if(ts>0){long originalTs=ts;v.put("original_ts",originalTs);v.put("ts",effectiveTs(type,description,originalTs));}
         if(source!=null&&!source.isEmpty())v.put("source","conciliado:"+source+"+"+(m.source==null?"notificacion":m.source));
-        return getWritableDatabase().update("tx",v,"id=? AND (fingerprint IS NULL OR fingerprint='')",new String[]{String.valueOf(m.id)})==1;
+        return getWritableDatabase().update("tx",v,"id=?",new String[]{String.valueOf(m.id)})==1;
     }
 
     private static boolean isRicherDescription(String newer,String older){
@@ -141,8 +127,15 @@ public class ExpenseDb extends SQLiteOpenHelper {
     }
     private static String mergeOriginal(String a,String b){String x=a==null?"":a.trim(),y=b==null?"":b.trim();if(x.isEmpty())return y;if(y.isEmpty()||x.contains(y))return x;return x+"\n--- Excel eBROU ---\n"+y;}
 
-    public static boolean merchantMatches(String a,String b){ String x=merchantKey(a),y=merchantKey(b); if(x.length()<4 || y.length()<4) return false; return x.contains(y) || y.contains(x); }
-    private static String merchantKey(String s){ if(s==null)return ""; String n=java.text.Normalizer.normalize(s,java.text.Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT); n=n.replaceAll("(?i)\\b(comercio|compra|debito|credito|tarjeta|visa|brou|presencial|transaccion|movimiento|notificacion|bancaria|transferencia|transf|trf)\\b"," "); return n.replaceAll("[^a-z0-9]+"," ").replaceAll("\\s+"," ").trim(); }
+    public static boolean merchantMatches(String a,String b){
+        String x=merchantKey(a),y=merchantKey(b);if(x.length()<3||y.length()<3)return false;if(x.equals(y)||x.contains(y)||y.contains(x))return true;
+        HashSet<String> sx=new HashSet<>(Arrays.asList(x.split(" ")));for(String t:y.split(" "))if(t.length()>=4&&sx.contains(t))return true;return false;
+    }
+    private static String merchantKey(String s){
+        if(s==null)return "";String n=java.text.Normalizer.normalize(s,java.text.Normalizer.Form.NFD).replaceAll("\\p{M}","").toLowerCase(Locale.ROOT);
+        n=n.replaceAll("(?i)\\b(comercio|compra|debito|credito|tarjeta|visa|brou|presencial|transaccion|movimiento|notificacion|bancaria|transferencia|transf|trf|nro|numero|local|suc|sucursal)\\b"," ");
+        n=n.replaceAll("[^a-z0-9]+"," ").replaceAll("\\b\\d+\\b"," ").replaceAll("\\b[a-z]\\b"," ").replaceAll("\\s+"," ").trim();return n;
+    }
 
     public long addRecurring(String type,double amount,String currency,String category,String description,int day){
         Calendar prev=Calendar.getInstance();prev.add(Calendar.MONTH,-1);String last=new SimpleDateFormat("yyyy-MM",Locale.US).format(prev.getTime());
