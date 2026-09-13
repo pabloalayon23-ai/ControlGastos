@@ -29,6 +29,21 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
+      - name: Install Android platform and build tools
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+
+      - name: Fix Godot numeric type inference
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('emanuel-game/godot/main.gd')
+          s=p.read_text()
+          s=s.replace('var cy := c.y + sin(c.phase)*10.0','var cy: float = float(c.y) + sin(float(c.phase))*10.0')
+          s=s.replace('var x := wx-fmod(world_x*0.13,1420.0)','var x: float = float(wx)-fmod(world_x*0.13,1420.0)')
+          s=s.replace('var cy := c.y+sin(c.phase)*10.0','var cy: float = float(c.y)+sin(float(c.phase))*10.0')
+          p.write_text(s)
+          PY
+
       - name: Export Godot Android APK
         id: export
         uses: firebelley/godot-export@v8.0.0
@@ -46,6 +61,9 @@ jobs:
           find emanuel-game -type f -name '*.apk' -print
           mkdir -p artifact
           APK=$(find emanuel-game -type f -name '*.apk' | head -n 1)
+          if [ -z "$APK" ]; then
+            APK=$(find "$HOME/.local/share/godot/builds" -type f -name '*.apk' | head -n 1)
+          fi
           test -n "$APK"
           cp "$APK" artifact/Emanuel-Aventuras-Godot-v1.apk
 
