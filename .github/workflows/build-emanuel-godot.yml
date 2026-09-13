@@ -30,19 +30,19 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Install Godot 4.3 Android requirements
-        run: |
-          sdkmanager "platform-tools" "build-tools;34.0.0" "platforms;android-34" "cmdline-tools;latest" "cmake;3.10.2.4988404" "ndk;23.2.8568313"
+        run: sdkmanager "platform-tools" "build-tools;34.0.0" "platforms;android-34" "cmake;3.10.2.4988404" "ndk;23.2.8568313"
 
-      - name: Configure Godot Android paths
+      - name: Configure Godot 4.3 Android paths
         run: |
           mkdir -p "$HOME/.config/godot"
-          cat > "$HOME/.config/godot/editor_settings-4.tres" <<EOF
+          cat > "$HOME/.config/godot/editor_settings-4.3.tres" <<EOF
           [gd_resource type="EditorSettings" format=3]
 
           [resource]
           export/android/android_sdk_path = "$ANDROID_SDK_ROOT"
           export/android/java_sdk_path = "$JAVA_HOME"
           EOF
+          cp "$HOME/.config/godot/editor_settings-4.3.tres" "$HOME/.config/godot/editor_settings-4.tres"
 
       - name: Fix Godot numeric type inference
         run: |
@@ -67,6 +67,7 @@ jobs:
           export_debug: true
           use_preset_export_path: true
           cache: true
+          verbose: true
 
       - name: Sign exported APK
         run: |
