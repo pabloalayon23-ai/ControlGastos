@@ -38,6 +38,7 @@ public final class ThemePrefs {
         }
         MonthlyInsightsOverlay.install(a);
         CategoryYearBarsOverlay.install(a);
+        AnalyticsTabStyleOverlay.install(a);
         ReconciliationOverlay.install(a);
     }
 }
