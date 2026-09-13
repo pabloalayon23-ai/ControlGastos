@@ -12,3 +12,5 @@ Aplicación Android local para registrar gastos e ingresos, movimientos recurren
 
 ## APK
 El workflow de GitHub Actions compila automáticamente una APK de depuración instalable como artifact `ControlGastos-APK`.
+
+Build actual: v1.8.30.
