@@ -29,3 +29,4 @@ assert anchor in s
 s=s.replace(anchor,helper+anchor,1)
 p.write_text(s)
 g=Path('app/build.gradle');t=g.read_text();t=re.sub(r'versionCode\s+\d+','versionCode 52',t,1);t=re.sub(r"versionName\s+'[^']+'","versionName '1.8.30'",t,1);g.write_text(t)
+# trigger
