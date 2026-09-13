@@ -60,7 +60,6 @@ public final class MovementReconciler {
         String bestDescription=betterDescription(keep.description,drop.description);
         String original=mergeText(keep.original,drop.original);
 
-        db.recordTxHistory(keep.id,"RECONCILE",DetectionRules.rulesSnapshot(dbContext(db)));
         ContentValues v=new ContentValues();
         v.put("category",bestCategory);v.put("description",bestDescription);v.put("original_text",original);v.put("source","conciliado:manual");
         SQLiteDatabase sql=db.getWritableDatabase();
@@ -68,10 +67,6 @@ public final class MovementReconciler {
         if(!updated)return false;
         db.deleteTx(drop.id);
         return true;
-    }
-
-    private static android.content.Context dbContext(ExpenseDb db){
-        try{java.lang.reflect.Field f=ExpenseDb.class.getDeclaredField("context");f.setAccessible(true);return (android.content.Context)f.get(db);}catch(Exception e){return null;}
     }
 
     private static Row load(ExpenseDb db,long id){
