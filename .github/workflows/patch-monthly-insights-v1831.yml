@@ -1,0 +1,67 @@
+name: Add monthly insights v1.8.31
+permissions:
+  contents: write
+on:
+  push:
+    paths:
+      - '.github/workflows/patch-monthly-insights-v1831.yml'
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Add local monthly analysis and update help
+        shell: python
+        run: |
+          from pathlib import Path
+          p=Path('app/src/main/java/com/pablo/controlgastos/AnalyticsActivity.java')
+          s=p.read_text()
+          old='Button cat=btn("Categorías"),mer=btn("Comercios"),evo=btn("Evolución"),cmp=btn("Comparar");for(Button b:new Button[]{cat,mer,evo,cmp})'
+          new='Button cat=btn("Categorías"),mer=btn("Comercios"),evo=btn("Evolución"),cmp=btn("Comparar"),ana=btn("Análisis");for(Button b:new Button[]{cat,mer,evo,cmp,ana})'
+          if old not in s: raise SystemExit('tabs target not found')
+          s=s.replace(old,new,1)
+          old='cmp.setOnClickListener(v->{active="cmp";showCompare();});hs.addView(tabs);'
+          new='cmp.setOnClickListener(v->{active="cmp";showCompare();});ana.setOnClickListener(v->{active="ana";showInsights();});hs.addView(tabs);'
+          if old not in s: raise SystemExit('tab listener target not found')
+          s=s.replace(old,new,1)
+          old='if("mer".equals(active))showMerchant();else if("evo".equals(active))showEvolution();else if("cmp".equals(active))showCompare();else showCategory();'
+          new='if("mer".equals(active))showMerchant();else if("evo".equals(active))showEvolution();else if("cmp".equals(active))showCompare();else if("ana".equals(active))showInsights();else showCategory();'
+          if old not in s: raise SystemExit('render target not found')
+          s=s.replace(old,new,1)
+          anchor=' private void showCompare(){'
+          if anchor not in s: raise SystemExit('showCompare anchor not found')
+          methods=r''' private double monthExpense(Calendar c){return financialTotals(c,false)[1];}
+ private double avgExpenseMonths(Calendar base,int months){double x=0;Calendar c=(Calendar)base.clone();for(int i=1;i<=months;i++){c=(Calendar)base.clone();c.add(Calendar.MONTH,-i);x+=monthExpense(c);}return months>0?x/months:0;}
+ private HashMap<String,Double> avgCategoryMonths(Calendar base,int months){HashMap<String,Double> a=new HashMap<>();for(int i=1;i<=months;i++){Calendar c=(Calendar)base.clone();c.add(Calendar.MONTH,-i);for(Map.Entry<String,Double>e:categoryMap(c,false).entrySet())a.put(e.getKey(),a.getOrDefault(e.getKey(),0.0)+e.getValue());}for(String k:new ArrayList<>(a.keySet()))a.put(k,a.get(k)/months);return a;}
+ private void insightCard(String title,String body,int color){LinearLayout box=new LinearLayout(this);box.setOrientation(LinearLayout.VERTICAL);box.setPadding(dp(14),dp(10),dp(14),dp(10));GradientDrawable g=bg(CARD,14);g.setStroke(dp(1),color);box.setBackground(g);TextView h=tv(title,17,TEXT);h.setTypeface(Typeface.DEFAULT,Typeface.BOLD);box.addView(h);box.addView(tv(body,14,MUTED));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.setMargins(0,dp(6),0,dp(6));content.addView(box,lp);}
+ private void showInsights(){active="ana";clear("Análisis del período","Opiniones automáticas basadas solamente en tus movimientos guardados");if(annual){addFinancialSummary();insightCard("Análisis anual","Para detectar gastos abruptos y hábitos, el análisis más preciso se realiza por mes. Cambiá a modo Mes para ver anomalías, tendencias y sugerencias detalladas.",ACCENT);return;}ArrayList<Object[]> rows=rowsFor(selected,false);double[] ft=financialTotals(selected,false);double income=ft[0],expense=ft[1],balance=income-expense;addFinancialSummary();if(rows.isEmpty()){content.addView(tv("Todavía no hay movimientos suficientes para analizar este mes.",15,MUTED));return;}double avg6=avgExpenseMonths(selected,6);double rate=income>0?balance/income*100:0;int statusColor=balance>=0?Color.rgb(55,170,105):Color.rgb(220,80,80);String status=balance>=0?"Mes con ahorro":"Mes con déficit";String statusBody=income>0?(balance>=0?"Ahorraste ":"Gastaste por encima de tus ingresos ")+"$ "+money.format(Math.abs(balance))+". Tasa de ahorro: "+new DecimalFormat("0.0").format(rate)+"%.":"No hay ingresos UYU registrados en este mes; no puedo calcular una tasa de ahorro confiable.";insightCard(status,statusBody,statusColor);
+ if(avg6>0){double pct=(expense-avg6)/avg6*100;if(Math.abs(pct)>=10)insightCard(pct>0?"Gasto mensual elevado":"Gasto mensual menor a lo habitual","Este mes gastaste "+new DecimalFormat("0").format(Math.abs(pct))+"% "+(pct>0?"más":"menos")+" que tu promedio de los 6 meses anteriores ($ "+money.format(avg6)+").",pct>0?Color.rgb(220,120,70):Color.rgb(55,170,105));}
+ LinkedHashMap<String,Double> cats=categoryMap(selected,false);HashMap<String,Double> avc=avgCategoryMonths(selected,6);String abrupt=null;double abruptPct=0,abruptValue=0;for(Map.Entry<String,Double>e:cats.entrySet()){double av=avc.getOrDefault(e.getKey(),0.0);if(av>0&&e.getValue()>av*1.5&&e.getValue()-av>1000){double pc=(e.getValue()-av)/av*100;if(pc>abruptPct){abruptPct=pc;abrupt=e.getKey();abruptValue=e.getValue();}}}if(abrupt!=null)insightCard("Categoría fuera de lo común",abrupt+" llegó a $ "+money.format(abruptValue)+", un "+new DecimalFormat("0").format(abruptPct)+"% por encima de su promedio de los 6 meses anteriores.",Color.rgb(220,120,70));
+ double biggest=0;String bigDesc="";double txSum=0;int txCount=0,smallCount=0;double smallSum=0;for(Object[]r:rows){if(!"GASTO".equals(r[0])||!"UYU".equals(r[2]))continue;double v=(Double)r[1];txSum+=v;txCount++;if(v>biggest){biggest=v;bigDesc=(String)r[4];}if(v<=500){smallCount++;smallSum+=v;}}double avgTx=txCount>0?txSum/txCount:0;if(biggest>0&&avgTx>0&&biggest>=avgTx*3)insightCard("Gasto individual abrupto",(bigDesc==null?"Un movimiento":bigDesc)+" fue de $ "+money.format(biggest)+", unas "+new DecimalFormat("0.0").format(biggest/avgTx)+" veces el gasto promedio de tus movimientos del mes.",Color.rgb(220,120,70));if(smallCount>=5&&smallSum>=1000)insightCard("Gastos pequeños acumulados",smallCount+" gastos de hasta $ 500 suman $ "+money.format(smallSum)+". Aunque individualmente son chicos, juntos representan "+new DecimalFormat("0.0").format(expense>0?smallSum/expense*100:0)+"% del gasto mensual.",ACCENT);
+ Calendar m1=(Calendar)selected.clone();m1.add(Calendar.MONTH,-1);Calendar m2=(Calendar)selected.clone();m2.add(Calendar.MONTH,-2);double e1=monthExpense(m1),e2=monthExpense(m2);if(e2>0&&e1>e2&&expense>e1)insightCard("Tendencia ascendente","Tus gastos subieron durante tres meses seguidos: $ "+money.format(e2)+" → $ "+money.format(e1)+" → $ "+money.format(expense)+".",Color.rgb(220,120,70));
+ if(income>0&&rate<20){double target=Math.max(0,expense-(income*0.80));if(target>0){String cat="";double excess=0;for(Map.Entry<String,Double>e:cats.entrySet()){double av=avc.getOrDefault(e.getKey(),0.0),ex=Math.max(0,e.getValue()-av);if(ex>excess){excess=ex;cat=e.getKey();}}String extra=cat.isEmpty()?"Revisá primero las categorías de mayor gasto.":"La categoría con mayor exceso frente a tu histórico es "+cat+".";insightCard("Objetivo de ahorro del 20%","Para cerrar el mes con un ahorro del 20% de tus ingresos, tendrías que reducir aproximadamente $ "+money.format(target)+". "+extra,ACCENT);}}
+ if(avg6==0)insightCard("Falta histórico","Todavía no hay suficiente historial previo para comparar este mes. Con varios meses cargados, ControlGastos podrá detectar mejor anomalías y tendencias.",ACCENT);content.addView(tv("Este análisis se calcula localmente en el teléfono. Son indicadores orientativos basados en tu historial; no se envían movimientos a un servicio externo.",12,MUTED));}
+'''
+          s=s.replace(anchor,methods+anchor,1)
+          p.write_text(s)
+
+          h=Path('app/src/main/java/com/pablo/controlgastos/HomeActivity.java')
+          x=h.read_text()
+          privacy='   "PRIVACIDAD\\nLos movimientos, reglas y presupuestos se guardan localmente. Estas funciones no requieren las credenciales de tu banco."'
+          addition='''   "19. ANÁLISIS AUTOMÁTICO DEL MES\\nEn Gráficos → Análisis, ControlGastos evalúa el mes seleccionado usando únicamente los movimientos guardados en el teléfono. Muestra ahorro o déficit y tasa de ahorro; compara el gasto con el promedio de los 6 meses anteriores; detecta categorías que aumentaron de forma marcada, gastos individuales muy superiores al promedio, acumulación de gastos pequeños y tendencias de tres meses. También puede estimar cuánto habría que reducir para alcanzar un ahorro del 20% de los ingresos y señalar la categoría que más se aparta de su histórico.\\n\\nLas comparaciones necesitan historial: con pocos meses cargados, la app lo indica en lugar de inventar conclusiones. El análisis es orientativo y se recalcula al cambiar de mes. No usa IA externa ni envía movimientos a Internet.",\n'''
+          if privacy not in x: raise SystemExit('privacy help target not found')
+          x=x.replace(privacy,addition+privacy,1)
+          h.write_text(x)
+
+          g=Path('app/build.gradle')
+          y=g.read_text()
+          if "versionName '1.8.30'" not in y: raise SystemExit('unexpected version')
+          y=y.replace('versionCode 52','versionCode 53').replace("versionName '1.8.30'","versionName '1.8.31'")
+          g.write_text(y)
+      - name: Commit changes
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/src/main/java/com/pablo/controlgastos/AnalyticsActivity.java app/src/main/java/com/pablo/controlgastos/HomeActivity.java app/build.gradle
+          git commit -m "Add local monthly financial insights v1.8.31"
+          git push
