@@ -37,5 +37,6 @@ public final class ThemePrefs {
             w.getDecorView().setSystemUiVisibility(flags);
         }
         MonthlyInsightsOverlay.install(a);
+        CategoryYearBarsOverlay.install(a);
     }
 }
