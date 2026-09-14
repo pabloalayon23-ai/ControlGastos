@@ -7,8 +7,8 @@ android {
         applicationId 'com.pablo.controlgastos.secure'
         minSdk 26
         targetSdk 35
-        versionCode 61
-        versionName '1.8.39'
+        versionCode 62
+        versionName '1.8.40'
     }
     buildTypes {
         debug { debuggable false }
