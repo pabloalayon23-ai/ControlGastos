@@ -1,0 +1,36 @@
+name: Apply normal duplicate detection v1.8.43
+on:
+  push:
+    paths:
+      - '.github/workflows/apply-normal-duplicate-v1843.yml'
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wire configurable criteria
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('app/src/main/java/com/pablo/controlgastos/BankNotificationListener.java')
+          s=p.read_text()
+          s=s.replace('if(db.hasImportedDuplicate("GASTO",amount,currency,description,ts))return;', 'if(NormalDuplicateDetector.hasImportedDuplicate(this,db,"GASTO",amount,currency,description,ts))return;')
+          s=s.replace('if(db.hasImportedDuplicate(type,amount,currency,description,ts))return;', 'if(NormalDuplicateDetector.hasImportedDuplicate(this,db,type,amount,currency,description,ts))return;')
+          p.write_text(s)
+          p=Path('app/src/main/java/com/pablo/controlgastos/ExpenseDb.java')
+          s=p.read_text()
+          old='''    public boolean hasImportedDuplicate(String type,double amount,String currency,String description,long ts){\n        long[] d=duplicateBounds(ts);\n        Cursor c=getReadableDatabase().rawQuery("SELECT description FROM tx WHERE type=? AND currency=? AND ABS(amount-?)<=? AND COALESCE(original_ts,ts)>=? AND COALESCE(original_ts,ts)<? AND (source LIKE \'banco-xls%\' OR source LIKE \'conciliado:%\') ORDER BY ABS(COALESCE(original_ts,ts)-?) ASC",new String[]{type,currency,String.valueOf(amount),String.valueOf(DUPLICATE_AMOUNT_TOLERANCE),String.valueOf(d[0]),String.valueOf(d[1]),String.valueOf(ts)});\n        try{while(c.moveToNext())if(merchantMatches(description,c.getString(0)))return true;return false;}finally{c.close();}\n    }'''
+          new='''    public boolean hasImportedDuplicate(String type,double amount,String currency,String description,long ts){\n        return NormalDuplicateDetector.hasImportedDuplicate(context,this,type,amount,currency,description,ts);\n    }'''
+          if old not in s: raise SystemExit('ExpenseDb target not found')
+          s=s.replace(old,new)
+          p.write_text(s)
+          PY
+      - name: Commit wiring
+        run: |
+          git config user.name github-actions
+          git config user.email github-actions@github.com
+          git add app/src/main/java/com/pablo/controlgastos/BankNotificationListener.java app/src/main/java/com/pablo/controlgastos/ExpenseDb.java
+          git commit -m 'Wire normal duplicate criteria into runtime'
+          git push
