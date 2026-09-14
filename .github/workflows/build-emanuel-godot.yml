@@ -82,30 +82,13 @@ jobs:
           echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android" >> "$GITHUB_ENV"
           keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey >/dev/null
 
-      - name: Install Gradle Android build template
-        run: |
-          TEMPLATE="$HOME/.local/share/godot/export_templates/4.3.stable/android_source.zip"
-          test -f "$TEMPLATE"
-          TMP="$(mktemp -d)"
-          unzip -q "$TEMPLATE" -d "$TMP"
-          GRADLEW="$(find "$TMP" -type f -name gradlew | head -n 1)"
-          test -n "$GRADLEW"
-          ROOT="$(dirname "$GRADLEW")"
-          rm -rf "$PROJECT_PATH/android"
-          mkdir -p "$PROJECT_PATH/android/build"
-          cp -a "$ROOT"/. "$PROJECT_PATH/android/build"/
-          chmod +x "$PROJECT_PATH/android/build/gradlew"
-          test -f "$PROJECT_PATH/android/build/build.gradle"
-          test -f "$PROJECT_PATH/android/build/gradlew"
-          ls -lah "$PROJECT_PATH/android/build" | head -n 30
-
       - name: Import project
         run: godot --headless --editor --path "$PROJECT_PATH" --quit
 
       - name: Export Android APK
         run: |
           mkdir -p build/android
-          godot --headless --verbose --path "$PROJECT_PATH" --export-debug "Android" "$GITHUB_WORKSPACE/build/android/Emanuel-Aventuras-Godot-v1.apk"
+          godot --headless --verbose --path "$PROJECT_PATH" --install-android-build-template --export-debug "Android" "$GITHUB_WORKSPACE/build/android/Emanuel-Aventuras-Godot-v1.apk"
 
       - name: Verify APK
         run: |
@@ -113,6 +96,7 @@ jobs:
           test -f "$APK"
           APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -1)"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
+          unzip -t "$APK" >/dev/null
           ls -lh "$APK"
 
       - name: Upload APK
