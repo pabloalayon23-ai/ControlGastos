@@ -14,38 +14,58 @@ on:
 jobs:
   export_android:
     runs-on: ubuntu-24.04
-    container:
-      image: barichello/godot-ci:4.3
     permissions:
       contents: read
     env:
-      GODOT_VERSION: '4.3'
       PROJECT_PATH: emanuel-game
-      GODOT_ANDROID_KEYSTORE_DEBUG_PATH: /github/home/.android/debug.keystore
-      GODOT_ANDROID_KEYSTORE_DEBUG_USER: androiddebugkey
-      GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD: android
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare Godot CI environment
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android packages
         run: |
           yes | sdkmanager --licenses >/dev/null || true
-          sdkmanager --sdk_root=/usr/lib/android-sdk "platform-tools" "build-tools;34.0.0" "platforms;android-34"
-          mkdir -p ~/.local/share/godot/export_templates ~/.config/godot ~/.android
-          if [ -d /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable ]; then
-            rm -rf ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
-            cp -a /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable ~/.local/share/godot/export_templates/
+          sdkmanager "platform-tools" "build-tools;34.0.0" "platforms;android-34"
+
+      - name: Setup Godot 4.3 with export templates
+        uses: chickensoft-games/setup-godot@v2
+        with:
+          version: '4.3.0'
+          use-dotnet: false
+          include-templates: true
+
+      - name: Prepare Godot Android settings and signing
+        run: |
+          mkdir -p "$HOME/.android" "$HOME/.config/godot"
+          if [ ! -f "$HOME/.android/debug.keystore" ]; then
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA \
+              -keysize 2048 \
+              -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
           fi
-          if [ -f /root/.config/godot/editor_settings-4.3.tres ]; then
-            cp /root/.config/godot/editor_settings-4.3.tres ~/.config/godot/editor_settings-4.3.tres
-          else
-            touch ~/.config/godot/editor_settings-4.3.tres
-          fi
-          printf '\nexport/android/java_sdk_path = "/usr/lib/jvm/java-17-openjdk-amd64"\nexport/android/android_sdk_path = "/usr/lib/android-sdk"\n' >> ~/.config/godot/editor_settings-4.3.tres
-          keytool -genkeypair -v -keystore "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH" -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
-          keytool -list -keystore "$GODOT_ANDROID_KEYSTORE_DEBUG_PATH" -storepass android -alias androiddebugkey >/dev/null
-          ls -lah ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=$HOME/.android/debug.keystore" >> "$GITHUB_ENV"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey" >> "$GITHUB_ENV"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android" >> "$GITHUB_ENV"
+          godot --headless --editor --path "$PROJECT_PATH" --quit || true
+          SETTINGS="$HOME/.config/godot/editor_settings-4.3.tres"
+          test -f "$SETTINGS"
+          printf '\nexport/android/java_sdk_path = "%s"\nexport/android/android_sdk_path = "%s"\nexport/android/debug_keystore = "%s/.android/debug.keystore"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\n' "$JAVA_HOME" "$ANDROID_SDK_ROOT" "$HOME" >> "$SETTINGS"
+          ls -lah "$HOME/.local/share/godot/export_templates/4.3.stable/"
+          test -f "$HOME/.local/share/godot/export_templates/4.3.stable/android_debug.apk"
 
       - name: Fix Godot script typing
         run: |
@@ -54,22 +74,18 @@ jobs:
           sed -i 's/var cy := c.y+sin(c.phase)\*10.0/var cy: float = float(c.y)+sin(float(c.phase))*10.0/g' emanuel-game/godot/main.gd
 
       - name: Import project
-        run: |
-          cd "$PROJECT_PATH"
-          godot --headless --editor --quit
+        run: godot --headless --editor --path "$PROJECT_PATH" --quit
 
       - name: Export Android APK
         run: |
           mkdir -p build/android
-          EXPORT_DIR="$(readlink -f build/android)"
-          cd "$PROJECT_PATH"
-          godot --headless --verbose --export-debug "Android" "$EXPORT_DIR/Emanuel-Aventuras-Godot-v1.apk"
+          godot --headless --verbose --path "$PROJECT_PATH" --export-debug "Android" "$GITHUB_WORKSPACE/build/android/Emanuel-Aventuras-Godot-v1.apk"
 
       - name: Verify APK
         run: |
-          APK=build/android/Emanuel-Aventuras-Godot-v1.apk
+          APK="$GITHUB_WORKSPACE/build/android/Emanuel-Aventuras-Godot-v1.apk"
           test -f "$APK"
-          APKSIGNER="$(find /usr/lib/android-sdk/build-tools -type f -name apksigner | sort -V | tail -1)"
+          APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -1)"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
           ls -lh "$APK"
 
