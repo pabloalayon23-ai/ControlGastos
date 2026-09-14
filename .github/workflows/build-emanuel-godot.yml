@@ -43,6 +43,12 @@ jobs:
           use-dotnet: false
           include-templates: true
 
+      - name: Fix Godot script typing
+        run: |
+          sed -i 's/var cy := c.y + sin(c.phase)\*10.0/var cy: float = float(c.y) + sin(float(c.phase))*10.0/g' emanuel-game/godot/main.gd
+          sed -i 's/var x := wx-fmod(world_x\*0.13,1420.0)/var x: float = float(wx)-fmod(world_x*0.13,1420.0)/g' emanuel-game/godot/main.gd
+          sed -i 's/var cy := c.y+sin(c.phase)\*10.0/var cy: float = float(c.y)+sin(float(c.phase))*10.0/g' emanuel-game/godot/main.gd
+
       - name: Prepare Godot Android settings and signing
         run: |
           mkdir -p "$HOME/.android" "$HOME/.config/godot"
@@ -57,21 +63,26 @@ jobs:
               -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
           fi
-          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=$HOME/.android/debug.keystore" >> "$GITHUB_ENV"
-          echo "GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey" >> "$GITHUB_ENV"
-          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android" >> "$GITHUB_ENV"
-          godot --headless --editor --path "$PROJECT_PATH" --quit || true
+          godot --headless --editor --path "$PROJECT_PATH" --quit
           SETTINGS="$HOME/.config/godot/editor_settings-4.3.tres"
           test -f "$SETTINGS"
           printf '\nexport/android/java_sdk_path = "%s"\nexport/android/android_sdk_path = "%s"\nexport/android/debug_keystore = "%s/.android/debug.keystore"\nexport/android/debug_keystore_user = "androiddebugkey"\nexport/android/debug_keystore_pass = "android"\n' "$JAVA_HOME" "$ANDROID_SDK_ROOT" "$HOME" >> "$SETTINGS"
+          mkdir -p "$PROJECT_PATH/.godot"
+          cat > "$PROJECT_PATH/.godot/export_credentials.cfg" <<EOF
+          [preset.0.options]
+          keystore/debug="$HOME/.android/debug.keystore"
+          keystore/debug_user="androiddebugkey"
+          keystore/debug_password="android"
+          keystore/release=""
+          keystore/release_user=""
+          keystore/release_password=""
+          EOF
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PATH=$HOME/.android/debug.keystore" >> "$GITHUB_ENV"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_USER=androiddebugkey" >> "$GITHUB_ENV"
+          echo "GODOT_ANDROID_KEYSTORE_DEBUG_PASSWORD=android" >> "$GITHUB_ENV"
           ls -lah "$HOME/.local/share/godot/export_templates/4.3.stable/"
           test -f "$HOME/.local/share/godot/export_templates/4.3.stable/android_debug.apk"
-
-      - name: Fix Godot script typing
-        run: |
-          sed -i 's/var cy := c.y + sin(c.phase)\*10.0/var cy: float = float(c.y) + sin(float(c.phase))*10.0/g' emanuel-game/godot/main.gd
-          sed -i 's/var x := wx-fmod(world_x\*0.13,1420.0)/var x: float = float(wx)-fmod(world_x*0.13,1420.0)/g' emanuel-game/godot/main.gd
-          sed -i 's/var cy := c.y+sin(c.phase)\*10.0/var cy: float = float(c.y)+sin(float(c.phase))*10.0/g' emanuel-game/godot/main.gd
+          keytool -list -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey >/dev/null
 
       - name: Import project
         run: godot --headless --editor --path "$PROJECT_PATH" --quit
