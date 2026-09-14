@@ -2,5 +2,6 @@ plugins { id 'com.android.application' }
 android { namespace 'com.pablo.controlgastos'; compileSdk 35
  defaultConfig { applicationId 'com.pablo.controlgastos.secure'; minSdk 26; targetSdk 35; versionCode 66; versionName '1.8.44' }
  buildTypes { debug { debuggable false }; release { minifyEnabled true; shrinkResources true; proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro' } }
+ packagingOptions { resources { excludes += ['META-INF/LICENSE.md','META-INF/NOTICE.md'] } }
 }
 dependencies { implementation 'net.sourceforge.jexcelapi:jxl:2.6.12'; implementation 'com.sun.mail:android-mail:1.6.7'; implementation 'com.sun.mail:android-activation:1.6.7' }
