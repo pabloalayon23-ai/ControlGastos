@@ -30,6 +30,8 @@ jobs:
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install Android packages
         run: |
@@ -88,11 +90,11 @@ jobs:
       - name: Export Android APK
         run: |
           mkdir -p build/android
-          godot --headless --verbose --path "$PROJECT_PATH" --install-android-build-template --export-debug "Android" "$GITHUB_WORKSPACE/build/android/Emanuel-Aventuras-Godot-v1.apk"
+          godot --headless --verbose --path "$PROJECT_PATH" --install-android-build-template --export-debug "Android" "$GITHUB_WORKSPACE/build/android/Emanuel-Aventuras-Godot-v2.apk"
 
       - name: Verify APK
         run: |
-          APK="$GITHUB_WORKSPACE/build/android/Emanuel-Aventuras-Godot-v1.apk"
+          APK="$GITHUB_WORKSPACE/build/android/Emanuel-Aventuras-Godot-v2.apk"
           test -f "$APK"
           APKSIGNER="$(find "$ANDROID_SDK_ROOT/build-tools" -type f -name apksigner | sort -V | tail -1)"
           "$APKSIGNER" verify --verbose --print-certs "$APK"
@@ -102,6 +104,6 @@ jobs:
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Emanuel-Aventuras-Godot-v1
-          path: build/android/Emanuel-Aventuras-Godot-v1.apk
+          name: Emanuel-Aventuras-Godot-v2
+          path: build/android/Emanuel-Aventuras-Godot-v2.apk
           if-no-files-found: error
