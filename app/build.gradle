@@ -1,6 +1,6 @@
 plugins { id 'com.android.application' }
 android { namespace 'com.pablo.controlgastos'; compileSdk 35
- defaultConfig { applicationId 'com.pablo.controlgastos.secure'; minSdk 26; targetSdk 35; versionCode 68; versionName '1.8.46' }
+ defaultConfig { applicationId 'com.pablo.controlgastos.secure'; minSdk 26; targetSdk 35; versionCode 69; versionName '1.8.47' }
  buildTypes { debug { debuggable false }; release { minifyEnabled true; shrinkResources true; proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro' } }
  packagingOptions { resources { excludes += ['META-INF/LICENSE.md','META-INF/NOTICE.md'] } }
 }
