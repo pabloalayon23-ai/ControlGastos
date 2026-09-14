@@ -40,6 +40,7 @@ public final class ThemePrefs {
         CategoryYearBarsOverlay.install(a);
         AnalyticsTabStyleOverlay.install(a);
         ReconciliationOverlay.install(a);
+        SmartImportOverlay.install(a);
         BiometricExternalGate.install(a);
     }
 }
