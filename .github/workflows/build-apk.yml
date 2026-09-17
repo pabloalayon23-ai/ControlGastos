@@ -1,29 +1,50 @@
 name: Build Android APK
 
-on: { push: { branches: [main] }, workflow_dispatch: {} }
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Apply v1.8.66 fixes
         run: python3 scripts/v1866_patch.py
-      - uses: actions/setup-java@v5
-        with: { distribution: temurin, java-version: '17' }
-      - uses: gradle/actions/setup-gradle@v4
-        with: { gradle-version: '8.11.1' }
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
       - name: Install Android SDK 35
+        shell: bash
         run: |
           export ANDROID_HOME=/usr/local/lib/android/sdk
           export ANDROID_SDK_ROOT=$ANDROID_HOME
           SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)
           "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
           echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
+
       - name: Build debug APK
         run: gradle --no-daemon :app:assembleDebug
+
       - name: Prepare APK
         run: cp app/build/outputs/apk/debug/app-debug.apk ControlGastos.apk
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
-        with: { name: ControlGastos-APK, path: ControlGastos.apk, if-no-files-found: error }
+        with:
+          name: ControlGastos-APK
+          path: ControlGastos.apk
+          if-no-files-found: error
