@@ -1,0 +1,28 @@
+name: Build ControlGastos v1.8.66
+on:
+  push:
+    branches:
+      - main
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/v1866_patch.py
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+      - run: |
+          export ANDROID_HOME=/usr/local/lib/android/sdk
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager | head -n 1)
+          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+      - run: gradle --no-daemon :app:assembleDebug
+      - run: cp app/build/outputs/apk/debug/app-debug.apk ControlGastos-v1.8.66.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ControlGastos-v1.8.66
+          path: ControlGastos-v1.8.66.apk
