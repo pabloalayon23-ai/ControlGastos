@@ -1,4 +1,4 @@
-name: Build Android APK
+name: Build Android APK v1.8.66
 
 on:
   push:
