@@ -1,4 +1,4 @@
-name: Build Android APK v1.8.66
+name: Build Android APK v1.8.67
 
 'on':
   push:
@@ -13,11 +13,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Apply v1.8.66 fixes
-        run: python3 scripts/v1866_patch.py
-
-      - name: Verify patched version
-        run: grep -q "versionName '1.8.66'" app/build.gradle
+      - name: Verify app version
+        run: grep -q "versionName '1.8.67'" app/build.gradle
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
