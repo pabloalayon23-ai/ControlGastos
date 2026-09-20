@@ -9,7 +9,7 @@ import android.os.SystemClock;
 
 public class HourlyNotificationCheckReceiver extends BroadcastReceiver {
     private static final int REQ=1207;
-    private static final long INTERVAL=60L*60L*1000L;
+    private static long interval(Context c){int m=c.getSharedPreferences("notification_check",Context.MODE_PRIVATE).getInt("minutes",60);return Math.max(1,m)*60L*1000L;}
 
     @Override public void onReceive(Context context, Intent intent){
         schedule(context);
@@ -22,7 +22,7 @@ public class HourlyNotificationCheckReceiver extends BroadcastReceiver {
         if(am==null) return;
         Intent i=new Intent(context,HourlyNotificationCheckReceiver.class);
         PendingIntent pi=PendingIntent.getBroadcast(context,REQ,i,PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
-        long first=SystemClock.elapsedRealtime()+INTERVAL;
-        am.setInexactRepeating(AlarmManager.ELAPSED_REALTIME_WAKEUP,first,INTERVAL,pi);
+        long every=interval(context);long first=SystemClock.elapsedRealtime()+every;
+        am.setInexactRepeating(AlarmManager.ELAPSED_REALTIME_WAKEUP,first,every,pi);
     }
 }
