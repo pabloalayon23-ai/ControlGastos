@@ -1,4 +1,4 @@
-name: Build Android APK v1.8.80 rebuild
+name: Build Android APK v1.8.80 fixed rebuild
 
 'on':
   push:
