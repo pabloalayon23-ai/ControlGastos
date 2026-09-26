@@ -50,6 +50,13 @@ public class ExpenseDb extends SQLiteOpenHelper {
         return getWritableDatabase().insert("tx",null,v);
     }
 
+    public int cleanVerboseBrouDescriptions(){
+        SQLiteDatabase db=getWritableDatabase();int changed=0;
+        Cursor q=db.rawQuery("SELECT id,description FROM tx WHERE source LIKE 'notificacion:%' AND (description LIKE '%Tipo:%' OR description LIKE '%Aprobado:%' OR description LIKE '%Por discrepancias%')",null);
+        try{while(q.moveToNext()){long id=q.getLong(0);String old=q.getString(1);if(old==null)continue;String clean=old.replaceAll("(?is)\\s*(?:Tipo|Aprobado|Fecha|Importe|Tarjeta|Por discrepancias).*","").replaceAll("\\s+"," ").trim();if(!clean.isEmpty()&&!clean.equals(old)){ContentValues v=new ContentValues();v.put("description",clean);changed+=db.update("tx",v,"id=?",new String[]{String.valueOf(id)});}}}finally{q.close();}
+        return changed;
+    }
+
     public boolean updateTx(long id,String type,double amount,String currency,String category,String description,long ts){
         recordTxHistory(id,"EDIT",DetectionRules.rulesSnapshot(context));
         ContentValues v=new ContentValues();
